@@ -9,12 +9,19 @@ const AuthContext = createContext(null);
 // Custom hook for using auth context
 export const useAuth = () => useContext(AuthContext);
 
+// Log API configuration
+console.log('API Configuration:', {
+  baseURL: config.apiUrl,
+  environment: process.env.NODE_ENV || import.meta.env.MODE
+});
+
 // Set up axios defaults and interceptors
 axios.defaults.baseURL = config.apiUrl;
 
 // Add request interceptor for authentication
 axios.interceptors.request.use(
   (config) => {
+    console.log('Making request to:', config.url);
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -28,7 +35,12 @@ axios.interceptors.request.use(
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.log('Response Error:', error.response?.data || error);
+    if (error.code === 'ERR_NETWORK') {
+      console.error('Network Error - Unable to connect to API:', config.apiUrl);
+      console.error('Full error details:', error);
+    } else {
+      console.error('API Error:', error.response?.data || error);
+    }
     return Promise.reject(error);
   }
 );
