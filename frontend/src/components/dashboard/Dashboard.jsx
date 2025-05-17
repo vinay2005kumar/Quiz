@@ -11,13 +11,19 @@ import {
   CardContent,
   CardActions,
   Divider,
-  CircularProgress
+  CircularProgress,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Menu,
+  MenuItem,
+  Avatar
 } from '@mui/material';
 import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -27,6 +33,7 @@ const Dashboard = () => {
     averageScore: 0,
     submissions: []
   });
+  const [anchorEl, setAnchorEl] = useState(null);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -68,6 +75,19 @@ const Dashboard = () => {
 
     fetchStats();
   }, [user]);
+
+  const handleMenu = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleLogout = () => {
+    handleClose();
+    logout();
+  };
 
   const StudentDashboard = () => (
     <Grid container spacing={3}>
@@ -302,15 +322,17 @@ const Dashboard = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {user.role === 'student' ? (
-        <StudentDashboard />
-      ) : user.role === 'admin' ? (
-        <AdminDashboard />
-      ) : (
-        <FacultyDashboard />
-      )}
-    </Container>
+    <Box sx={{ flexGrow: 1 }}>
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        {user.role === 'student' ? (
+          <StudentDashboard />
+        ) : user.role === 'admin' ? (
+          <AdminDashboard />
+        ) : (
+          <FacultyDashboard />
+        )}
+      </Container>
+    </Box>
   );
 };
 

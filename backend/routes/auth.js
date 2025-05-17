@@ -8,14 +8,18 @@ const { auth } = require('../middleware/auth');
 // Register user
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, department, year, admissionNumber, isLateral,section } = req.body;
+    const { name, email, password, role, department, year, admissionNumber, isLateral, section } = req.body;
 
-    if (!name || !email || !password || !role || !department || !section) {
+    // Basic validation for all users
+    if (!name || !email || !password || !role || !department) {
       return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    if (role === 'student' && (!year || !admissionNumber)) {
-      return res.status(400).json({ message: 'Students must provide year and admission number' });
+    // Additional validation for students
+    if (role === 'student') {
+      if (!year || !admissionNumber || !section) {
+        return res.status(400).json({ message: 'Students must provide year, section, and admission number' });
+      }
     }
 
     // Check if user already exists
@@ -65,7 +69,8 @@ router.post('/register', async (req, res) => {
         ...(user.role === 'student' && {
           year: user.year,
           admissionNumber: user.admissionNumber,
-          isLateral: user.isLateral
+          isLateral: user.isLateral,
+          section: user.section
         })
       }
     });
@@ -150,6 +155,73 @@ router.get('/me', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get user error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Update user profile
+router.put('/update-profile', auth, async (req, res) => {
+  try {
+    const { name, email, department, year, section } = req.body;
+    const userId = req.user._id;
+
+    // Basic validation
+    if (!name || !email || !department) {
+      return res.status(400).json({ message: 'Name, email, and department are required' });
+    }
+
+    // Validate email format
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // Check if email is already taken by another user
+    const existingUser = await User.findOne({ email, _id: { $ne: userId } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email is already in use' });
+    }
+
+    // Get current user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Update basic fields
+    user.name = name;
+    user.email = email;
+    user.department = department;
+
+    // Update student-specific fields
+    if (user.role === 'student') {
+      if (!year || !section) {
+        return res.status(400).json({ message: 'Year and section are required for students' });
+      }
+      user.year = year;
+      user.section = section;
+    }
+
+    await user.save();
+
+    // Return updated user data
+    res.json({
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+        ...(user.role === 'student' && {
+          year: user.year,
+          admissionNumber: user.admissionNumber,
+          isLateral: user.isLateral,
+          section: user.section
+        })
+      }
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

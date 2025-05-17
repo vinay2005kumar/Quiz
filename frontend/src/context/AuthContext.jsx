@@ -1,6 +1,6 @@
-
 import { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 // Create the auth context
 const AuthContext = createContext(null);
@@ -35,6 +35,7 @@ axios.interceptors.response.use(
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   // Check authentication on component mount
   useEffect(() => {
@@ -121,13 +122,33 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const updateProfile = async (profileData) => {
+    try {
+      console.log('Updating profile:', profileData);
+      const response = await axios.put('/api/auth/update-profile', profileData);
+      
+      if (response.status === 200) {
+        setUser(response.data.user);
+        return { success: true };
+      }
+      return { success: false, error: response.data.message };
+    } catch (error) {
+      console.error('Profile update error:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.message || 'Failed to update profile' 
+      };
+    }
+  };
+
   const value = {
     user,
     loading,
     login,
     register,
     logout,
-    checkAuth
+    checkAuth,
+    updateProfile
   };
 
   return (

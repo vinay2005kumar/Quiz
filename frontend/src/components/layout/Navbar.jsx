@@ -23,10 +23,12 @@ import QuizIcon from '@mui/icons-material/Quiz';
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../../context/AuthContext';
+import EditProfile from '../profile/EditProfile';
 
 const Navbar = () => {
   const [anchorElNav, setAnchorElNav] = useState(null);
   const [anchorElUser, setAnchorElUser] = useState(null);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -58,6 +60,11 @@ const Navbar = () => {
     logout();
     navigate('/login');
     handleCloseUserMenu();
+  };
+
+  const handleEditProfile = () => {
+    setAnchorElUser(null);
+    setIsEditProfileOpen(true);
   };
 
   const getNavItems = () => {
@@ -118,183 +125,192 @@ const Navbar = () => {
   const isActive = (path) => location.pathname === path;
 
   return (
-    <AppBar 
-      position="sticky" 
-      sx={{ 
-        zIndex: theme.zIndex.drawer + 1,
-        backgroundColor: 'white',
-        color: 'text.primary',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-      }}
-    >
-      <Container maxWidth="xl">
-        <Toolbar disableGutters sx={{ minHeight: { xs: 64, md: 70 } }}>
-          {/* Logo for desktop */}
-          <Typography
-            variant="h5"
-            noWrap
-            component="div"
-            sx={{ 
-              mr: 4, 
-              display: { xs: 'none', md: 'flex' },
-              color: theme.palette.primary.main,
-              fontWeight: 600,
-              alignItems: 'center'
-            }}
-          >
-            <QuizIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
-            Quiz App
-          </Typography>
+    <>
+      <AppBar 
+        position="sticky" 
+        sx={{ 
+          zIndex: theme.zIndex.drawer + 1,
+          backgroundColor: 'white',
+          color: 'text.primary',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        }}
+      >
+        <Container maxWidth="xl">
+          <Toolbar disableGutters sx={{ minHeight: { xs: 64, md: 70 } }}>
+            {/* Logo for desktop */}
+            <Typography
+              variant="h5"
+              noWrap
+              component="div"
+              sx={{ 
+                mr: 4, 
+                display: { xs: 'none', md: 'flex' },
+                color: theme.palette.primary.main,
+                fontWeight: 600,
+                alignItems: 'center'
+              }}
+            >
+              <QuizIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
+              Quiz App
+            </Typography>
 
-          {/* Mobile menu */}
-          <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
-            <IconButton
-              size="large"
-              aria-label="menu"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
-              onClick={handleOpenNavMenu}
-              sx={{ color: theme.palette.primary.main }}
+            {/* Mobile menu */}
+            <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
+              <IconButton
+                size="large"
+                aria-label="menu"
+                aria-controls="menu-appbar"
+                aria-haspopup="true"
+                onClick={handleOpenNavMenu}
+                sx={{ color: theme.palette.primary.main }}
+              >
+                <MenuIcon />
+              </IconButton>
+              <Menu
+                id="menu-appbar"
+                anchorEl={anchorElNav}
+                anchorOrigin={{
+                  vertical: 'bottom',
+                  horizontal: 'left',
+                }}
+                keepMounted
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'left',
+                }}
+                open={Boolean(anchorElNav)}
+                onClose={handleCloseNavMenu}
+                sx={{
+                  display: { xs: 'block', md: 'none' },
+                  '& .MuiPaper-root': {
+                    borderRadius: '12px',
+                    mt: 1,
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  }
+                }}
+              >
+                {getNavItems().map((item) => (
+                  <MenuItem 
+                    key={item.path} 
+                    onClick={() => handleMenuClick(item.path)}
+                    sx={{
+                      backgroundColor: isActive(item.path) ? 'rgba(0,0,0,0.04)' : 'transparent',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0,0,0,0.08)',
+                      }
+                    }}
+                  >
+                    {item.icon}
+                    <Typography>{item.label}</Typography>
+                  </MenuItem>
+                ))}
+              </Menu>
+            </Box>
+
+            {/* Logo for mobile */}
+            <Typography
+              variant="h6"
+              noWrap
+              component="div"
+              sx={{ 
+                flexGrow: 1, 
+                display: { xs: 'flex', md: 'none' },
+                color: theme.palette.primary.main,
+                fontWeight: 600,
+                alignItems: 'center'
+              }}
             >
-              <MenuIcon />
-            </IconButton>
-            <Menu
-              id="menu-appbar"
-              anchorEl={anchorElNav}
-              anchorOrigin={{
-                vertical: 'bottom',
-                horizontal: 'left',
-              }}
-              keepMounted
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'left',
-              }}
-              open={Boolean(anchorElNav)}
-              onClose={handleCloseNavMenu}
-              sx={{
-                display: { xs: 'block', md: 'none' },
-                '& .MuiPaper-root': {
-                  borderRadius: '12px',
-                  mt: 1,
-                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-                }
-              }}
-            >
+              <QuizIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
+              Quiz App
+            </Typography>
+
+            {/* Desktop menu */}
+            <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, gap: 1 }}>
               {getNavItems().map((item) => (
-                <MenuItem 
-                  key={item.path} 
+                <Button
+                  key={item.path}
                   onClick={() => handleMenuClick(item.path)}
                   sx={{
+                    color: isActive(item.path) ? theme.palette.primary.main : 'text.primary',
                     backgroundColor: isActive(item.path) ? 'rgba(0,0,0,0.04)' : 'transparent',
+                    px: 2,
+                    py: 1,
                     '&:hover': {
                       backgroundColor: 'rgba(0,0,0,0.08)',
-                    }
+                    },
+                    display: 'flex',
+                    alignItems: 'center'
                   }}
                 >
                   {item.icon}
-                  <Typography>{item.label}</Typography>
-                </MenuItem>
+                  {item.label}
+                </Button>
               ))}
-            </Menu>
-          </Box>
+            </Box>
 
-          {/* Logo for mobile */}
-          <Typography
-            variant="h6"
-            noWrap
-            component="div"
-            sx={{ 
-              flexGrow: 1, 
-              display: { xs: 'flex', md: 'none' },
-              color: theme.palette.primary.main,
-              fontWeight: 600,
-              alignItems: 'center'
-            }}
-          >
-            <QuizIcon sx={{ mr: 1, color: theme.palette.primary.main }} />
-            Quiz App
-          </Typography>
-
-          {/* Desktop menu */}
-          <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, gap: 1 }}>
-            {getNavItems().map((item) => (
-              <Button
-                key={item.path}
-                onClick={() => handleMenuClick(item.path)}
-                sx={{
-                  color: isActive(item.path) ? theme.palette.primary.main : 'text.primary',
-                  backgroundColor: isActive(item.path) ? 'rgba(0,0,0,0.04)' : 'transparent',
-                  px: 2,
-                  py: 1,
-                  '&:hover': {
-                    backgroundColor: 'rgba(0,0,0,0.08)',
-                  },
-                  display: 'flex',
-                  alignItems: 'center'
+            {/* User menu */}
+            <Box sx={{ flexShrink: 0 }}>
+              <Tooltip title={user?.name || 'User settings'}>
+                <IconButton onClick={handleOpenUserMenu} sx={{ p: 0.5 }}>
+                  <Avatar 
+                    sx={{ 
+                      bgcolor: theme.palette.primary.main,
+                      width: 40,
+                      height: 40
+                    }}
+                  >
+                    <PersonIcon />
+                  </Avatar>
+                </IconButton>
+              </Tooltip>
+              <Menu
+                sx={{ 
+                  mt: '45px',
+                  '& .MuiPaper-root': {
+                    borderRadius: '12px',
+                    minWidth: 200,
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                  }
                 }}
+                id="menu-appbar"
+                anchorEl={anchorElUser}
+                anchorOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+                keepMounted
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+                open={Boolean(anchorElUser)}
+                onClose={handleCloseUserMenu}
               >
-                {item.icon}
-                {item.label}
-              </Button>
-            ))}
-          </Box>
-
-          {/* User menu */}
-          <Box sx={{ flexShrink: 0 }}>
-            <Tooltip title={user?.name || 'User settings'}>
-              <IconButton onClick={handleOpenUserMenu} sx={{ p: 0.5 }}>
-                <Avatar 
-                  sx={{ 
-                    bgcolor: theme.palette.primary.main,
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <PersonIcon />
-                </Avatar>
-              </IconButton>
-            </Tooltip>
-            <Menu
-              sx={{ 
-                mt: '45px',
-                '& .MuiPaper-root': {
-                  borderRadius: '12px',
-                  minWidth: 200,
-                  boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-                }
-              }}
-              id="menu-appbar"
-              anchorEl={anchorElUser}
-              anchorOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              keepMounted
-              transformOrigin={{
-                vertical: 'top',
-                horizontal: 'right',
-              }}
-              open={Boolean(anchorElUser)}
-              onClose={handleCloseUserMenu}
-            >
-              <Box sx={{ px: 2, py: 1 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  {user?.name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {user?.role.charAt(0).toUpperCase() + user?.role.slice(1)}
-                </Typography>
-              </Box>
-              <Divider />
-              <MenuItem onClick={handleLogout} sx={{ mt: 1 }}>
-                <Typography>Logout</Typography>
-              </MenuItem>
-            </Menu>
-          </Box>
-        </Toolbar>
-      </Container>
-    </AppBar>
+                <Box sx={{ px: 2, py: 1 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {user?.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {user?.role.charAt(0).toUpperCase() + user?.role.slice(1)}
+                  </Typography>
+                </Box>
+                <Divider />
+                <MenuItem onClick={handleEditProfile}>
+                  <Typography>Edit Profile</Typography>
+                </MenuItem>
+                <MenuItem onClick={handleLogout}>
+                  <Typography>Logout</Typography>
+                </MenuItem>
+              </Menu>
+            </Box>
+          </Toolbar>
+        </Container>
+      </AppBar>
+      <EditProfile 
+        open={isEditProfileOpen} 
+        onClose={() => setIsEditProfileOpen(false)} 
+      />
+    </>
   );
 };
 
