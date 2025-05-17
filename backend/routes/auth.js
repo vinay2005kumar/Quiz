@@ -85,6 +85,8 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('Login attempt for email:', email);
+
     if (!email || !password) {
       return res.status(400).json({ message: 'Please provide email and password' });
     }
@@ -92,21 +94,40 @@ router.post('/login', async (req, res) => {
     // Find user
     const user = await User.findOne({ email });
     if (!user) {
+      console.log('Login failed: User not found for email:', email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      console.log('Login failed: Invalid password for email:', email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token
+    // Generate token with explicit expiration
+    const tokenPayload = {
+      userId: user._id,
+      role: user.role,
+      email: user.email
+    };
+
     const token = jwt.sign(
-      { userId: user._id },
+      tokenPayload,
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '24h' }
     );
+
+    // Verify token immediately to ensure it's valid
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    
+    console.log('Login successful:', {
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+      tokenExp: new Date(decoded.exp * 1000).toISOString(),
+      tokenPreview: `${token.substring(0, 10)}...`
+    });
 
     res.json({
       token,
@@ -119,7 +140,8 @@ router.post('/login', async (req, res) => {
         ...(user.role === 'student' && {
           year: user.year,
           admissionNumber: user.admissionNumber,
-          isLateral: user.isLateral
+          isLateral: user.isLateral,
+          section: user.section
         })
       }
     });

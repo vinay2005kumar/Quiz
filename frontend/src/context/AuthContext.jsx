@@ -27,10 +27,11 @@ console.log('API Configuration:', {
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    console.log('Request Config:', {
+    console.log('Making request:', {
       url: config.baseURL + config.url,
+      method: config.method,
       hasToken: !!token,
-      method: config.method
+      tokenValue: token ? `${token.substring(0, 10)}...` : null
     });
     
     if (token) {
@@ -57,9 +58,21 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Token expired or invalid
-      console.log('Authentication error - clearing token');
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      const currentToken = localStorage.getItem('token');
+      console.log('Authentication error:', {
+        status: error.response.status,
+        message: error.response.data?.message,
+        currentToken: currentToken ? `${currentToken.substring(0, 10)}...` : null,
+        path: window.location.pathname
+      });
+      
+      // Only remove token if we're not in the login process
+      if (!error.config.url.includes('/auth/login')) {
+        localStorage.removeItem('token');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      }
       return Promise.reject(new Error('Session expired. Please login again.'));
     }
     
@@ -87,7 +100,11 @@ export const AuthProvider = ({ children }) => {
   // Check authentication on component mount
   useEffect(() => {
     const token = localStorage.getItem('token');
-    console.log('Initial auth check:', { hasToken: !!token });
+    console.log('Initial auth check:', { 
+      hasToken: !!token,
+      tokenValue: token ? `${token.substring(0, 10)}...` : null,
+      currentPath: window.location.pathname
+    });
     
     if (token) {
       checkAuth();
@@ -102,12 +119,20 @@ export const AuthProvider = ({ children }) => {
   // Verify authentication with backend
   const checkAuth = async () => {
     try {
-      console.log('Checking authentication...');
+      console.log('Checking authentication with token:', {
+        token: localStorage.getItem('token')?.substring(0, 10) + '...'
+      });
+      
       const response = await api.get('/auth/me');
       
       console.log('Auth check response:', {
         success: true,
-        hasUser: !!response.data?.user
+        hasUser: !!response.data?.user,
+        userData: response.data?.user ? {
+          id: response.data.user.id,
+          role: response.data.user.role,
+          email: response.data.user.email
+        } : null
       });
 
       if (response.data && response.data.user) {
@@ -121,15 +146,19 @@ export const AuthProvider = ({ children }) => {
       console.error('Auth check failed:', {
         error: error.message,
         status: error.response?.status,
-        data: error.response?.data
+        data: error.response?.data,
+        hasToken: !!localStorage.getItem('token')
       });
       
       setAuthError(error.message);
-      localStorage.removeItem('token');
-      setUser(null);
       
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
-        navigate('/login');
+      // Only remove token and redirect if it's a 401 error
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        setUser(null);
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+          navigate('/login');
+        }
       }
     } finally {
       setLoading(false);
@@ -140,22 +169,24 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setAuthError(null);
-      console.log('Attempting login...');
+      console.log('Attempting login for email:', email);
+      
       const response = await api.post('/auth/login', {
         email,
         password
       });
       
-      console.log('Login successful:', {
+      console.log('Login response:', {
+        success: true,
         hasToken: !!response.data.token,
-        hasUser: !!response.data.user
+        hasUser: !!response.data.user,
+        tokenPreview: response.data.token ? `${response.data.token.substring(0, 10)}...` : null
       });
           
       const { token, user } = response.data;
       localStorage.setItem('token', token);
       setUser(user);
       
-      // Don't verify token immediately to avoid race condition
       return { success: true };
     } catch (error) {
       console.error('Login failed:', {
@@ -176,7 +207,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       setAuthError(null);
-      console.log('Starting registration...');
+      console.log('Starting registration for:', userData.email);
       
       if (userData.role === 'student' && !userData.section) {
         return {
@@ -186,16 +217,17 @@ export const AuthProvider = ({ children }) => {
       }
       
       const response = await api.post('/auth/register', userData);
-      console.log('Registration successful:', {
+      console.log('Registration response:', {
+        success: true,
         hasToken: !!response.data.token,
-        hasUser: !!response.data.user
+        hasUser: !!response.data.user,
+        tokenPreview: response.data.token ? `${response.data.token.substring(0, 10)}...` : null
       });
       
       const { token, user } = response.data;
       localStorage.setItem('token', token);
       setUser(user);
       
-      // Don't verify token immediately to avoid race condition
       return { success: true };
     } catch (error) {
       console.error('Registration failed:', {
@@ -214,7 +246,7 @@ export const AuthProvider = ({ children }) => {
 
   // User logout
   const logout = () => {
-    console.log('Logging out...');
+    console.log('Logging out user:', user?.email);
     localStorage.removeItem('token');
     setUser(null);
     setAuthError(null);
@@ -224,7 +256,7 @@ export const AuthProvider = ({ children }) => {
   const updateProfile = async (profileData) => {
     try {
       setAuthError(null);
-      console.log('Updating profile...');
+      console.log('Updating profile for user:', user?.email);
       const response = await api.put('/auth/update-profile', profileData);
       
       console.log('Profile update response:', {
