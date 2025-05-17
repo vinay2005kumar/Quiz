@@ -5,10 +5,9 @@ console.log('Is development:', isDevelopment);
 
 export const config = {
   apiUrl: isDevelopment 
-    ? 'http://localhost:5000/api'
+    ? 'https://quiz-qigc.onrender.com/api'
     : 'https://quiz-qigc.onrender.com/api',
   tokenKey: 'token',
-  authCheckInterval: 30000, // Check auth every 30 seconds
 }; 
 
 console.log('API URL:', config.apiUrl); 
