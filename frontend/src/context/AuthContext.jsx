@@ -26,25 +26,45 @@ console.log('API Configuration:', {
 // Add request interceptor for authentication
 api.interceptors.request.use(
   (config) => {
-    console.log('Making request to:', config.baseURL + config.url);
     const token = localStorage.getItem('token');
+    console.log('Request Config:', {
+      url: config.baseURL + config.url,
+      hasToken: !!token,
+      method: config.method
+    });
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('Request interceptor error:', error);
+    return Promise.reject(error);
+  }
 );
 
 // Response interceptor for better error handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('Response received:', {
+      url: response.config.url,
+      status: response.status,
+      hasData: !!response.data
+    });
+    return response;
+  },
   (error) => {
     if (error.code === 'ERR_NETWORK') {
       console.error('Network Error - Unable to connect to API:', config.apiUrl);
       console.error('Full error details:', error);
     } else {
-      console.error('API Error:', error.response?.data || error);
+      console.error('API Error:', {
+        url: error.config?.url,
+        status: error.response?.status,
+        message: error.response?.data?.message || error.message,
+        data: error.response?.data
+      });
     }
     return Promise.reject(error);
   }
@@ -58,6 +78,8 @@ export const AuthProvider = ({ children }) => {
   // Check authentication on component mount
   useEffect(() => {
     const token = localStorage.getItem('token');
+    console.log('Initial auth check:', { hasToken: !!token });
+    
     if (token) {
       checkAuth();
     } else {
@@ -68,16 +90,29 @@ export const AuthProvider = ({ children }) => {
   // Verify authentication with backend
   const checkAuth = async () => {
     try {
+      console.log('Checking authentication...');
       const response = await api.get('/auth/me');
+      
+      console.log('Auth check response:', {
+        success: true,
+        hasUser: !!response.data?.user
+      });
+
       if (response.data && response.data.user) {
         setUser(response.data.user);
       } else {
+        console.warn('Auth check: Valid response but no user data');
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      console.error('Auth check failed:', {
+        error: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
       localStorage.removeItem('token');
       setUser(null);
+      navigate('/login');
     } finally {
       setLoading(false);
     }
@@ -86,18 +121,31 @@ export const AuthProvider = ({ children }) => {
   // User login
   const login = async (email, password) => {
     try {
-      console.log('Attempting login to:', config.apiUrl + '/auth/login');
+      console.log('Attempting login...');
       const response = await api.post('/auth/login', {
         email,
         password
+      });
+      
+      console.log('Login successful:', {
+        hasToken: !!response.data.token,
+        hasUser: !!response.data.user
       });
           
       const { token, user } = response.data;
       localStorage.setItem('token', token);
       setUser(user);
+      
+      // Verify token immediately after login
+      await checkAuth();
+      
       return { success: true };
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error('Login failed:', {
+        error: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
       return {
         success: false,
         error: error.response?.data?.message || 'Login failed'
@@ -108,7 +156,7 @@ export const AuthProvider = ({ children }) => {
   // User registration with improved error handling
   const register = async (userData) => {
     try {
-      console.log('Sending registration data:', userData);
+      console.log('Starting registration...');
       
       if (userData.role === 'student' && !userData.section) {
         return {
@@ -118,14 +166,25 @@ export const AuthProvider = ({ children }) => {
       }
       
       const response = await api.post('/auth/register', userData);
-      const { token, user } = response.data;
+      console.log('Registration successful:', {
+        hasToken: !!response.data.token,
+        hasUser: !!response.data.user
+      });
       
+      const { token, user } = response.data;
       localStorage.setItem('token', token);
       setUser(user);
       
+      // Verify token immediately after registration
+      await checkAuth();
+      
       return { success: true };
     } catch (error) {
-      console.error('Registration failed:', error);
+      console.error('Registration failed:', {
+        error: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
       return {
         success: false,
         error: error.response?.data?.message || 'Registration failed. Please try again.'
@@ -135,14 +194,21 @@ export const AuthProvider = ({ children }) => {
 
   // User logout
   const logout = () => {
+    console.log('Logging out...');
     localStorage.removeItem('token');
     setUser(null);
+    navigate('/login');
   };
 
   const updateProfile = async (profileData) => {
     try {
-      console.log('Updating profile:', profileData);
+      console.log('Updating profile...');
       const response = await api.put('/auth/update-profile', profileData);
+      
+      console.log('Profile update response:', {
+        status: response.status,
+        hasUser: !!response.data.user
+      });
       
       if (response.status === 200) {
         setUser(response.data.user);
@@ -150,7 +216,11 @@ export const AuthProvider = ({ children }) => {
       }
       return { success: false, error: response.data.message };
     } catch (error) {
-      console.error('Profile update error:', error);
+      console.error('Profile update error:', {
+        error: error.message,
+        status: error.response?.status,
+        data: error.response?.data
+      });
       return { 
         success: false, 
         error: error.response?.data?.message || 'Failed to update profile' 
