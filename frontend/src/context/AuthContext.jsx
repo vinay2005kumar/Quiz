@@ -55,6 +55,14 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      console.log('Authentication error - clearing token');
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+      return Promise.reject(new Error('Session expired. Please login again.'));
+    }
+    
     if (error.code === 'ERR_NETWORK') {
       console.error('Network Error - Unable to connect to API:', config.apiUrl);
       console.error('Full error details:', error);
@@ -73,6 +81,7 @@ api.interceptors.response.use(
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
   const navigate = useNavigate();
 
   // Check authentication on component mount
@@ -84,8 +93,11 @@ export const AuthProvider = ({ children }) => {
       checkAuth();
     } else {
       setLoading(false);
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        navigate('/login');
+      }
     }
-  }, []);
+  }, [navigate]);
 
   // Verify authentication with backend
   const checkAuth = async () => {
@@ -100,6 +112,7 @@ export const AuthProvider = ({ children }) => {
 
       if (response.data && response.data.user) {
         setUser(response.data.user);
+        setAuthError(null);
       } else {
         console.warn('Auth check: Valid response but no user data');
         throw new Error('Invalid response format');
@@ -110,9 +123,14 @@ export const AuthProvider = ({ children }) => {
         status: error.response?.status,
         data: error.response?.data
       });
+      
+      setAuthError(error.message);
       localStorage.removeItem('token');
       setUser(null);
-      navigate('/login');
+      
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -121,6 +139,7 @@ export const AuthProvider = ({ children }) => {
   // User login
   const login = async (email, password) => {
     try {
+      setAuthError(null);
       console.log('Attempting login...');
       const response = await api.post('/auth/login', {
         email,
@@ -136,9 +155,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', token);
       setUser(user);
       
-      // Verify token immediately after login
-      await checkAuth();
-      
+      // Don't verify token immediately to avoid race condition
       return { success: true };
     } catch (error) {
       console.error('Login failed:', {
@@ -146,6 +163,8 @@ export const AuthProvider = ({ children }) => {
         status: error.response?.status,
         data: error.response?.data
       });
+      
+      setAuthError(error.response?.data?.message || 'Login failed');
       return {
         success: false,
         error: error.response?.data?.message || 'Login failed'
@@ -156,6 +175,7 @@ export const AuthProvider = ({ children }) => {
   // User registration with improved error handling
   const register = async (userData) => {
     try {
+      setAuthError(null);
       console.log('Starting registration...');
       
       if (userData.role === 'student' && !userData.section) {
@@ -175,9 +195,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', token);
       setUser(user);
       
-      // Verify token immediately after registration
-      await checkAuth();
-      
+      // Don't verify token immediately to avoid race condition
       return { success: true };
     } catch (error) {
       console.error('Registration failed:', {
@@ -185,6 +203,8 @@ export const AuthProvider = ({ children }) => {
         status: error.response?.status,
         data: error.response?.data
       });
+      
+      setAuthError(error.response?.data?.message || 'Registration failed');
       return {
         success: false,
         error: error.response?.data?.message || 'Registration failed. Please try again.'
@@ -197,11 +217,13 @@ export const AuthProvider = ({ children }) => {
     console.log('Logging out...');
     localStorage.removeItem('token');
     setUser(null);
+    setAuthError(null);
     navigate('/login');
   };
 
   const updateProfile = async (profileData) => {
     try {
+      setAuthError(null);
       console.log('Updating profile...');
       const response = await api.put('/auth/update-profile', profileData);
       
@@ -221,6 +243,8 @@ export const AuthProvider = ({ children }) => {
         status: error.response?.status,
         data: error.response?.data
       });
+      
+      setAuthError(error.response?.data?.message || 'Failed to update profile');
       return { 
         success: false, 
         error: error.response?.data?.message || 'Failed to update profile' 
@@ -231,6 +255,7 @@ export const AuthProvider = ({ children }) => {
   const value = {
     user,
     loading,
+    authError,
     login,
     register,
     logout,

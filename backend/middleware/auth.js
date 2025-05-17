@@ -6,32 +6,44 @@ const auth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
-      throw new Error('No token provided');
+      return res.status(401).json({ message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    const user = await User.findById(decoded.userId);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const user = await User.findById(decoded.userId);
 
-    if (!user) {
-      throw new Error('User not found');
+      if (!user) {
+        return res.status(401).json({ message: 'User not found' });
+      }
+
+      // Check token expiration
+      const currentTimestamp = Math.floor(Date.now() / 1000);
+      if (decoded.exp && decoded.exp < currentTimestamp) {
+        return res.status(401).json({ message: 'Token has expired' });
+      }
+
+      // Set both user and userId for flexibility
+      req.user = user;
+      req.userId = user._id;
+      req.token = token;
+
+      console.log('Auth middleware - User authenticated:', {
+        id: user._id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        tokenExp: new Date(decoded.exp * 1000).toISOString()
+      });
+
+      next();
+    } catch (jwtError) {
+      console.error('JWT verification failed:', jwtError.message);
+      return res.status(401).json({ message: 'Invalid token' });
     }
-
-    // Set both user and userId for flexibility
-    req.user = user;
-    req.userId = user._id;
-    req.token = token;
-
-    console.log('Auth middleware - User:', {
-      id: user._id,
-      role: user.role,
-      name: user.name,
-      email: user.email
-    });
-
-    next();
   } catch (error) {
     console.error('Auth middleware error:', error.message);
-    res.status(401).json({ message: 'Please authenticate' });
+    res.status(500).json({ message: 'Server error during authentication' });
   }
 };
 
