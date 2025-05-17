@@ -1,56 +1,12 @@
 import { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { config } from '../config/config';
+import api from '../config/axios';
 
 // Create the auth context
 const AuthContext = createContext(null);
 
 // Custom hook for using auth context
 export const useAuth = () => useContext(AuthContext);
-
-// Create axios instance with configuration
-const api = axios.create({
-  baseURL: config.apiUrl,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-});
-
-// Log API configuration
-console.log('API Configuration:', {
-  baseURL: api.defaults.baseURL,
-  environment: process.env.NODE_ENV || import.meta.env.MODE,
-  isDevelopment: process.env.NODE_ENV === 'development' || import.meta.env.MODE === 'development'
-});
-
-// Add request interceptor for authentication
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor for handling auth errors
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -64,7 +20,8 @@ export const AuthProvider = ({ children }) => {
       checkAuth();
     } else {
       setLoading(false);
-      if (!window.location.pathname.includes('/login')) {
+      const publicPaths = ['/login', '/register'];
+      if (!publicPaths.some(path => window.location.pathname.includes(path))) {
         navigate('/login');
       }
     }
@@ -77,7 +34,11 @@ export const AuthProvider = ({ children }) => {
         setUser(response.data.user);
       }
     } catch (error) {
-      console.error('Auth check failed:', error.message);
+      if (error.response?.status === 401) {
+        localStorage.removeItem('token');
+        setUser(null);
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -93,8 +54,9 @@ export const AuthProvider = ({ children }) => {
       navigate('/dashboard');
       return { success: true };
     } catch (error) {
-      setAuthError(error.response?.data?.message || 'Login failed');
-      return { success: false, error: error.response?.data?.message || 'Login failed' };
+      const errorMessage = error.response?.data?.message || 'Login failed';
+      setAuthError(errorMessage);
+      return { success: false, error: errorMessage };
     }
   };
 

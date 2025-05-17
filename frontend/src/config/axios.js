@@ -1,39 +1,31 @@
 import axios from 'axios';
+import { config } from './config';
 
-// Set base URL for all axios requests
-axios.defaults.baseURL = 'http://localhost:5000/api';
+// Create configured axios instance
+const api = axios.create({
+  baseURL: config.apiUrl,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
-// Add request interceptor to add auth token
-axios.interceptors.request.use(
+// Add request interceptor for authentication
+api.interceptors.request.use(
   (config) => {
-    // Add auth token
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-
-    console.log('Request URL:', config.url); // Debug log
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Add response interceptor to handle errors
-axios.interceptors.response.use(
-  (response) => {
-    console.log('Response:', response.status, response.data); // Debug log
-    return response;
-  },
+// Response interceptor for handling auth errors
+api.interceptors.response.use(
+  (response) => response,
   (error) => {
-    console.error('Response Error:', {
-      status: error.response?.status,
-      message: error.message,
-      data: error.response?.data
-    });
-
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !error.config.url.includes('/auth/login')) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
@@ -41,4 +33,4 @@ axios.interceptors.response.use(
   }
 );
 
-export default axios; 
+export default api; 
