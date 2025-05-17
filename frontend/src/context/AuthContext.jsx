@@ -1,6 +1,7 @@
 import { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { config } from '../config/config';
 
 // Create the auth context
 const AuthContext = createContext(null);
@@ -9,7 +10,7 @@ const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
 // Set up axios defaults and interceptors
-axios.defaults.baseURL = 'http://localhost:5000/api';
+axios.defaults.baseURL = config.apiUrl;
 
 // Add request interceptor for authentication
 axios.interceptors.request.use(
