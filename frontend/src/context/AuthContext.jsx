@@ -169,30 +169,55 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setAuthError(null);
-      console.log('Attempting login for email:', email);
+      console.log('Starting login process:', {
+        email,
+        timestamp: new Date().toISOString()
+      });
       
       const response = await api.post('/auth/login', {
         email,
         password
       });
       
-      console.log('Login response:', {
+      console.log('Login API response received:', {
         success: true,
         hasToken: !!response.data.token,
         hasUser: !!response.data.user,
-        tokenPreview: response.data.token ? `${response.data.token.substring(0, 10)}...` : null
+        tokenPreview: response.data.token ? `${response.data.token.substring(0, 10)}...` : null,
+        timestamp: new Date().toISOString()
       });
           
       const { token, user } = response.data;
+      
+      // Store token first
       localStorage.setItem('token', token);
+      console.log('Token stored in localStorage:', {
+        tokenPreview: `${token.substring(0, 10)}...`,
+        timestamp: new Date().toISOString()
+      });
+
+      // Then update user state
       setUser(user);
+      console.log('User state updated:', {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        timestamp: new Date().toISOString()
+      });
+
+      // Delay navigation slightly to ensure state is updated
+      setTimeout(() => {
+        console.log('Navigating to dashboard...');
+        navigate('/dashboard');
+      }, 100);
       
       return { success: true };
     } catch (error) {
-      console.error('Login failed:', {
+      console.error('Login process failed:', {
         error: error.message,
         status: error.response?.status,
-        data: error.response?.data
+        data: error.response?.data,
+        timestamp: new Date().toISOString()
       });
       
       setAuthError(error.response?.data?.message || 'Login failed');
