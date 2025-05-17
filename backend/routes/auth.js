@@ -154,12 +154,43 @@ router.post('/login', async (req, res) => {
 // Get current user
 router.get('/me', auth, async (req, res) => {
   try {
+    console.log('GET /me - Fetching user details:', {
+      userId: req.user._id,
+      timestamp: new Date().toISOString()
+    });
+
     // Since auth middleware already fetched the user, we can use it directly
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id)
+      .select('-password')
+      .lean();
     
     if (!user) {
+      console.log('GET /me - User not found in database');
       return res.status(404).json({ message: 'User not found' });
     }
+
+    // Verify token expiration
+    const token = req.token;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+
+    console.log('GET /me - Token verification:', {
+      userId: decoded.userId,
+      expiration: new Date(decoded.exp * 1000).toISOString(),
+      currentTime: new Date().toISOString(),
+      isExpired: decoded.exp < currentTimestamp
+    });
+
+    if (decoded.exp < currentTimestamp) {
+      console.log('GET /me - Token has expired');
+      return res.status(401).json({ message: 'Token has expired' });
+    }
+
+    console.log('GET /me - Sending user data:', {
+      userId: user._id,
+      role: user.role,
+      timestamp: new Date().toISOString()
+    });
 
     res.json({
       user: {
@@ -171,12 +202,23 @@ router.get('/me', auth, async (req, res) => {
         ...(user.role === 'student' && {
           year: user.year,
           admissionNumber: user.admissionNumber,
-          isLateral: user.isLateral
+          isLateral: user.isLateral,
+          section: user.section
         })
       }
     });
   } catch (error) {
-    console.error('Get user error:', error);
+    console.error('GET /me - Error:', {
+      error: error.message,
+      type: error.name,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+    
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

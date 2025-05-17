@@ -14,29 +14,45 @@ const api = axios.create({
   baseURL: config.apiUrl,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 10000 // 10 second timeout
 });
 
 // Log API configuration
 console.log('API Configuration:', {
   baseURL: api.defaults.baseURL,
-  environment: process.env.NODE_ENV || import.meta.env.MODE
+  environment: process.env.NODE_ENV || import.meta.env.MODE,
+  isDevelopment: process.env.NODE_ENV === 'development' || import.meta.env.MODE === 'development'
 });
 
 // Add request interceptor for authentication
 api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
+  async (config) => {
+    let token = localStorage.getItem(config.tokenKey);
+    
     console.log('Making request:', {
       url: config.baseURL + config.url,
       method: config.method,
       hasToken: !!token,
-      tokenValue: token ? `${token.substring(0, 10)}...` : null
+      tokenPreview: token ? `${token.substring(0, 10)}...` : null,
+      timestamp: new Date().toISOString()
     });
     
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // Skip token check for login and register endpoints
+    if (config.url.includes('/auth/login') || config.url.includes('/auth/register')) {
+      return config;
     }
+
+    // Ensure we have a valid token
+    if (!token) {
+      console.log('No token found, redirecting to login');
+      window.location.href = '/login';
+      return Promise.reject(new Error('No authentication token'));
+    }
+
+    // Add token to request headers
+    config.headers.Authorization = `Bearer ${token}`;
+    
     return config;
   },
   (error) => {
@@ -51,42 +67,58 @@ api.interceptors.response.use(
     console.log('Response received:', {
       url: response.config.url,
       status: response.status,
-      hasData: !!response.data
+      hasData: !!response.data,
+      timestamp: new Date().toISOString()
     });
     return response;
   },
-  (error) => {
+  async (error) => {
+    // Handle network errors
+    if (error.code === 'ERR_NETWORK') {
+      console.error('Network Error:', {
+        url: error.config?.url,
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+      
+      // For network errors, we'll retry the request once after a delay
+      if (!error.config?._retry) {
+        error.config._retry = true;
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        return api(error.config);
+      }
+    }
+
+    // Handle authentication errors
     if (error.response?.status === 401) {
-      // Token expired or invalid
-      const currentToken = localStorage.getItem('token');
       console.log('Authentication error:', {
         status: error.response.status,
         message: error.response.data?.message,
-        currentToken: currentToken ? `${currentToken.substring(0, 10)}...` : null,
-        path: window.location.pathname
+        path: window.location.pathname,
+        timestamp: new Date().toISOString()
       });
-      
-      // Only remove token if we're not in the login process
+
+      // Only handle token removal if not in login process
       if (!error.config.url.includes('/auth/login')) {
-        localStorage.removeItem('token');
-        if (window.location.pathname !== '/login') {
+        const currentPath = window.location.pathname;
+        localStorage.removeItem(config.tokenKey);
+        
+        // Avoid redirect loops
+        if (currentPath !== '/login' && currentPath !== '/register') {
           window.location.href = '/login';
         }
       }
       return Promise.reject(new Error('Session expired. Please login again.'));
     }
-    
-    if (error.code === 'ERR_NETWORK') {
-      console.error('Network Error - Unable to connect to API:', config.apiUrl);
-      console.error('Full error details:', error);
-    } else {
-      console.error('API Error:', {
-        url: error.config?.url,
-        status: error.response?.status,
-        message: error.response?.data?.message || error.message,
-        data: error.response?.data
-      });
-    }
+
+    // Log other errors
+    console.error('API Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.response?.data?.message || error.message,
+      timestamp: new Date().toISOString()
+    });
+
     return Promise.reject(error);
   }
 );
@@ -95,15 +127,17 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
+  const [lastAuthCheck, setLastAuthCheck] = useState(0);
   const navigate = useNavigate();
 
-  // Check authentication on component mount
+  // Check authentication on component mount and periodically
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem(config.tokenKey);
     console.log('Initial auth check:', { 
       hasToken: !!token,
-      tokenValue: token ? `${token.substring(0, 10)}...` : null,
-      currentPath: window.location.pathname
+      tokenPreview: token ? `${token.substring(0, 10)}...` : null,
+      currentPath: window.location.pathname,
+      apiUrl: config.apiUrl
     });
     
     if (token) {
@@ -114,47 +148,58 @@ export const AuthProvider = ({ children }) => {
         navigate('/login');
       }
     }
-  }, [navigate]);
+
+    // Set up periodic auth check
+    const interval = setInterval(() => {
+      const token = localStorage.getItem(config.tokenKey);
+      const now = Date.now();
+      // Only check if we have a token and enough time has passed since last check
+      if (token && (now - lastAuthCheck) >= config.authCheckInterval) {
+        checkAuth();
+      }
+    }, config.authCheckInterval);
+
+    return () => clearInterval(interval);
+  }, [navigate, lastAuthCheck]);
 
   // Verify authentication with backend
   const checkAuth = async () => {
+    const token = localStorage.getItem(config.tokenKey);
     try {
-      console.log('Checking authentication with token:', {
-        token: localStorage.getItem('token')?.substring(0, 10) + '...'
+      console.log('Starting auth check:', {
+        hasToken: !!token,
+        tokenPreview: token ? `${token.substring(0, 10)}...` : null,
+        currentPath: window.location.pathname,
+        apiUrl: config.apiUrl,
+        timestamp: new Date().toISOString()
       });
-      
+
+      if (!token) {
+        console.log('No token found during auth check');
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       const response = await api.get('/auth/me');
-      
-      console.log('Auth check response:', {
-        success: true,
-        hasUser: !!response.data?.user,
-        userData: response.data?.user ? {
-          id: response.data.user.id,
-          role: response.data.user.role,
-          email: response.data.user.email
-        } : null
-      });
+      setLastAuthCheck(Date.now());
 
       if (response.data && response.data.user) {
         setUser(response.data.user);
         setAuthError(null);
       } else {
-        console.warn('Auth check: Valid response but no user data');
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error('Auth check failed:', {
+      console.error('Auth check error:', {
         error: error.message,
         status: error.response?.status,
-        data: error.response?.data,
-        hasToken: !!localStorage.getItem('token')
+        apiUrl: config.apiUrl,
+        timestamp: new Date().toISOString()
       });
-      
-      setAuthError(error.message);
-      
-      // Only remove token and redirect if it's a 401 error
+
       if (error.response?.status === 401) {
-        localStorage.removeItem('token');
+        localStorage.removeItem(config.tokenKey);
         setUser(null);
         if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
           navigate('/login');
@@ -169,62 +214,19 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setAuthError(null);
-      console.log('Starting login process:', {
-        email,
-        timestamp: new Date().toISOString()
-      });
+      const response = await api.post('/auth/login', { email, password });
       
-      const response = await api.post('/auth/login', {
-        email,
-        password
-      });
-      
-      console.log('Login API response received:', {
-        success: true,
-        hasToken: !!response.data.token,
-        hasUser: !!response.data.user,
-        tokenPreview: response.data.token ? `${response.data.token.substring(0, 10)}...` : null,
-        timestamp: new Date().toISOString()
-      });
-          
       const { token, user } = response.data;
-      
-      // Store token first
-      localStorage.setItem('token', token);
-      console.log('Token stored in localStorage:', {
-        tokenPreview: `${token.substring(0, 10)}...`,
-        timestamp: new Date().toISOString()
-      });
-
-      // Then update user state
+      localStorage.setItem(config.tokenKey, token);
       setUser(user);
-      console.log('User state updated:', {
-        userId: user.id,
-        email: user.email,
-        role: user.role,
-        timestamp: new Date().toISOString()
-      });
-
-      // Delay navigation slightly to ensure state is updated
-      setTimeout(() => {
-        console.log('Navigating to dashboard...');
-        navigate('/dashboard');
-      }, 100);
+      setLastAuthCheck(Date.now());
+      navigate('/dashboard');
       
       return { success: true };
     } catch (error) {
-      console.error('Login process failed:', {
-        error: error.message,
-        status: error.response?.status,
-        data: error.response?.data,
-        timestamp: new Date().toISOString()
-      });
-      
+      console.error('Login failed:', error);
       setAuthError(error.response?.data?.message || 'Login failed');
-      return {
-        success: false,
-        error: error.response?.data?.message || 'Login failed'
-      };
+      return { success: false, error: error.response?.data?.message || 'Login failed' };
     }
   };
 
@@ -250,7 +252,7 @@ export const AuthProvider = ({ children }) => {
       });
       
       const { token, user } = response.data;
-      localStorage.setItem('token', token);
+      localStorage.setItem(config.tokenKey, token);
       setUser(user);
       
       return { success: true };
@@ -271,10 +273,10 @@ export const AuthProvider = ({ children }) => {
 
   // User logout
   const logout = () => {
-    console.log('Logging out user:', user?.email);
-    localStorage.removeItem('token');
+    localStorage.removeItem(config.tokenKey);
     setUser(null);
     setAuthError(null);
+    setLastAuthCheck(0);
     navigate('/login');
   };
 
