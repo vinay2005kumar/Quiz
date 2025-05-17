@@ -9,19 +9,24 @@ const AuthContext = createContext(null);
 // Custom hook for using auth context
 export const useAuth = () => useContext(AuthContext);
 
+// Create axios instance with configuration
+const api = axios.create({
+  baseURL: config.apiUrl,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
 // Log API configuration
 console.log('API Configuration:', {
-  baseURL: config.apiUrl,
+  baseURL: api.defaults.baseURL,
   environment: process.env.NODE_ENV || import.meta.env.MODE
 });
 
-// Set up axios defaults and interceptors
-axios.defaults.baseURL = config.apiUrl;
-
 // Add request interceptor for authentication
-axios.interceptors.request.use(
+api.interceptors.request.use(
   (config) => {
-    console.log('Making request to:', config.url);
+    console.log('Making request to:', config.baseURL + config.url);
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -32,7 +37,7 @@ axios.interceptors.request.use(
 );
 
 // Response interceptor for better error handling
-axios.interceptors.response.use(
+api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.code === 'ERR_NETWORK') {
@@ -63,7 +68,7 @@ export const AuthProvider = ({ children }) => {
   // Verify authentication with backend
   const checkAuth = async () => {
     try {
-      const response = await axios.get('/auth/me');
+      const response = await api.get('/auth/me');
       if (response.data && response.data.user) {
         setUser(response.data.user);
       } else {
@@ -81,7 +86,8 @@ export const AuthProvider = ({ children }) => {
   // User login
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/auth/login', {
+      console.log('Attempting login to:', config.apiUrl + '/auth/login');
+      const response = await api.post('/auth/login', {
         email,
         password
       });
@@ -104,7 +110,6 @@ export const AuthProvider = ({ children }) => {
     try {
       console.log('Sending registration data:', userData);
       
-      // Make sure section is properly included for students
       if (userData.role === 'student' && !userData.section) {
         return {
           success: false,
@@ -112,7 +117,7 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      const response = await axios.post('/auth/register', userData);
+      const response = await api.post('/auth/register', userData);
       const { token, user } = response.data;
       
       localStorage.setItem('token', token);
@@ -121,7 +126,6 @@ export const AuthProvider = ({ children }) => {
       return { success: true };
     } catch (error) {
       console.error('Registration failed:', error);
-      // Provide detailed error information
       return {
         success: false,
         error: error.response?.data?.message || 'Registration failed. Please try again.'
@@ -138,7 +142,7 @@ export const AuthProvider = ({ children }) => {
   const updateProfile = async (profileData) => {
     try {
       console.log('Updating profile:', profileData);
-      const response = await axios.put('/api/auth/update-profile', profileData);
+      const response = await api.put('/auth/update-profile', profileData);
       
       if (response.status === 200) {
         setUser(response.data.user);
