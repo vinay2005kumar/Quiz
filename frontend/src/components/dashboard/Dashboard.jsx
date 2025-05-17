@@ -19,7 +19,7 @@ import {
   MenuItem,
   Avatar
 } from '@mui/material';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const Dashboard = () => {
@@ -38,42 +38,44 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [quizzesResponse, submissionsResponse] = await Promise.all([
-          axios.get('/quiz'),
-          user.role === 'student' ? 
-            Promise.all(
-              (await axios.get('/quiz')).data.map(quiz =>
-                axios.get(`/quiz/${quiz._id}/submission`)
-                  .then(res => ({ quizId: quiz._id, ...res.data }))
-                  .catch(() => null)
-              )
-            ) : Promise.resolve([])
-        ]);
+        // Get quizzes
+        const quizzesResponse = await api.get('/quiz');
+        const quizzes = Array.isArray(quizzesResponse.data) ? quizzesResponse.data : [];
 
-        const quizzes = quizzesResponse.data;
-        const validSubmissions = submissionsResponse.filter(sub => sub !== null);
+        // For students, fetch their submissions
+        let submissions = [];
+        if (user.role === 'student' && quizzes.length > 0) {
+          const submissionPromises = quizzes.map(quiz =>
+            api.get(`/quiz/${quiz._id}/submission`)
+              .then(res => ({ quizId: quiz._id, ...res.data }))
+              .catch(() => null)
+          );
+          submissions = (await Promise.all(submissionPromises)).filter(sub => sub !== null);
+        }
 
         // Calculate statistics
         const now = new Date();
         const stats = {
           totalQuizzes: quizzes.length,
           upcomingQuizzes: quizzes.filter(quiz => new Date(quiz.startTime) > now).length,
-          completedQuizzes: validSubmissions.length,
-          averageScore: validSubmissions.length > 0 
-            ? validSubmissions.reduce((sum, sub) => sum + (sub.score || 0), 0) / validSubmissions.length
+          completedQuizzes: submissions.length,
+          averageScore: submissions.length > 0 
+            ? submissions.reduce((sum, sub) => sum + (sub.totalMarks || 0), 0) / submissions.length
             : 0,
-          submissions: validSubmissions
+          submissions: submissions
         };
 
         setStats(stats);
-        setLoading(false);
       } catch (error) {
         console.error('Error fetching stats:', error);
+      } finally {
         setLoading(false);
       }
     };
 
-    fetchStats();
+    if (user) {
+      fetchStats();
+    }
   }, [user]);
 
   const handleMenu = (event) => {
