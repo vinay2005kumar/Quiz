@@ -80,7 +80,7 @@ const QuizList = () => {
   const [quizToDelete, setQuizToDelete] = useState(null);
   const [filters, setFilters] = useState({
     year: 'all',
-    department: 'all',
+    department: user?.department || 'all',
     section: 'all',
     subject: 'all',
     status: 'all',
@@ -193,12 +193,8 @@ const QuizList = () => {
     quizzes.forEach(quiz => {
       if (!quiz) return;
 
-      // Calculate total eligible students
-      const totalPossibleStudents = (quiz.allowedYears?.length || 0) * 
-        (quiz.allowedDepartments?.length || 0) * 
-        (quiz.allowedSections?.length || 0) * 60; // Assuming average 60 students per section
-      
-      stats.totalStudents += totalPossibleStudents;
+      // Use the actual authorized student count from the backend
+      stats.totalStudents += quiz.totalAuthorizedStudents || 0;
       
       // Calculate submission statistics
       const quizSubmissions = submissions[quiz._id] || [];
@@ -353,12 +349,29 @@ const QuizList = () => {
   const getFilteredQuizzes = () => {
     return quizzes.filter(quiz => {
       if (!quiz) return false;
-      if (filters.year !== 'all' && !(quiz.allowedYears || []).includes(parseInt(filters.year))) return false;
-      if (filters.department !== 'all' && !(quiz.allowedDepartments || []).includes(filters.department)) return false;
-      if (filters.section !== 'all' && !(quiz.allowedSections || []).includes(filters.section)) return false;
-      if (filters.subject !== 'all' && quiz?.subject?._id !== filters.subject) return false;
-      if (user?.role === 'admin' && filters.faculty !== 'all' && quiz?.createdBy?._id !== filters.faculty) return false;
-      
+
+      // Check year filter
+      if (filters.year !== 'all') {
+        const hasMatchingYear = quiz.allowedGroups.some(
+          group => group.year === parseInt(filters.year)
+        );
+        if (!hasMatchingYear) return false;
+      }
+
+      // Check section filter
+      if (filters.section !== 'all') {
+        const hasMatchingSection = quiz.allowedGroups.some(
+          group => group.section === filters.section
+        );
+        if (!hasMatchingSection) return false;
+      }
+
+      // Check subject filter
+      if (filters.subject !== 'all' && quiz?.subject?._id !== filters.subject) {
+        return false;
+      }
+
+      // Check status filter
       if (filters.status !== 'all') {
         const now = new Date();
         const startTime = new Date(quiz.startTime);
@@ -860,22 +873,6 @@ const QuizList = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Department</InputLabel>
-                  <Select
-                    name="department"
-                    value={filters.department}
-                    onChange={(e) => handleFilterChange(e)}
-                    label="Department"
-                  >
-                    <MenuItem value="all">All Departments</MenuItem>
-                    {departments.map(dept => (
-                      <MenuItem key={dept} value={dept}>{dept}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
                   <InputLabel>Year</InputLabel>
                   <Select
                     name="year"
@@ -886,6 +883,22 @@ const QuizList = () => {
                     <MenuItem value="all">All Years</MenuItem>
                     {[1, 2, 3, 4].map(year => (
                       <MenuItem key={year} value={year}>Year {year}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Section</InputLabel>
+                  <Select
+                    name="section"
+                    value={filters.section}
+                    onChange={(e) => handleFilterChange(e)}
+                    label="Section"
+                  >
+                    <MenuItem value="all">All Sections</MenuItem>
+                    {['A', 'B', 'C', 'D', 'E'].map(section => (
+                      <MenuItem key={section} value={section}>Section {section}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -913,7 +926,7 @@ const QuizList = () => {
                   onClick={() => {
                     setFilters({
                       year: 'all',
-                      department: 'all',
+                      department: user.department, // Keep faculty's department
                       section: 'all',
                       subject: 'all',
                       status: 'all',
@@ -1004,7 +1017,7 @@ const QuizList = () => {
                             Years:{' '}
                           </Typography>
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {(quiz.allowedYears || []).map((year) => (
+                            {[...new Set(quiz.allowedGroups.map(group => group.year))].map((year) => (
                               <Chip
                                 key={year}
                                 label={`Year ${year}`}
@@ -1021,7 +1034,7 @@ const QuizList = () => {
                             Sections:{' '}
                           </Typography>
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {(quiz.allowedSections || []).map((section) => (
+                            {[...new Set(quiz.allowedGroups.map(group => group.section))].map((section) => (
                               <Chip
                                 key={section}
                                 label={`${section}`}

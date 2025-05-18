@@ -67,6 +67,20 @@ router.post('/', auth, authorize('faculty', 'admin'), async (req, res) => {
       });
     }
 
+    // For faculty, enforce department restriction
+    if (req.user.role === 'faculty') {
+      // Check if any group has a different department than the faculty's
+      const hasInvalidDepartment = req.body.allowedGroups.some(
+        group => group.department !== req.user.department
+      );
+
+      if (hasInvalidDepartment) {
+        return res.status(403).json({
+          message: 'Faculty can only create quizzes for their own department'
+        });
+      }
+    }
+
     // Validate each allowed group
     for (let i = 0; i < req.body.allowedGroups.length; i++) {
       const group = req.body.allowedGroups[i];
@@ -178,8 +192,13 @@ router.get('/', auth, async (req, res) => {
 
     // Add submission statistics to each quiz
     const enrichedQuizzes = await Promise.all(quizzes.map(async (quiz) => {
-      // Calculate total authorized students based on allowed groups
-      const totalAuthorized = quiz.allowedGroups.length * 60; // Assuming 60 students per section
+      // Get actual count of registered students who match the quiz filters
+      const authorizedStudents = await User.find({
+        role: 'student',
+        department: { $in: quiz.allowedGroups.map(group => group.department) },
+        year: { $in: quiz.allowedGroups.map(group => group.year) },
+        section: { $in: quiz.allowedGroups.map(group => group.section) }
+      }).countDocuments();
 
       const submissions = await QuizSubmission.find({
         quiz: quiz._id,
@@ -194,7 +213,7 @@ router.get('/', auth, async (req, res) => {
         ...quiz,
         totalSubmissions: submissions.length,
         averageScore: submissions.length > 0 ? (totalScore / submissions.length) : 0,
-        totalAuthorizedStudents: totalAuthorized
+        totalAuthorizedStudents: authorizedStudents
       };
     }));
 
@@ -253,140 +272,101 @@ router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) 
         average: 0,  // 50-70%
         poor: 0      // < 50%
       },
-      subjectWiseStats: [],
-      departmentWiseStats: [],
-      yearWiseStats: [],
-      timeSeriesData: []
+      departmentWiseStats: []
     };
 
-    // Get submissions for these quizzes
-    const quizIds = quizzes.map(quiz => quiz._id);
-    const submissions = await QuizSubmission.find({ 
-      quiz: { $in: quizIds },
-      status: 'evaluated'
-    }).populate('student', 'department year').lean();
-
-    // Count active and completed quizzes
-    quizzes.forEach(quiz => {
-      if (new Date(quiz.endTime) < now) {
-        statistics.completedQuizzes++;
-      } else if (new Date(quiz.startTime) <= now && new Date(quiz.endTime) >= now) {
-        statistics.activeQuizzes++;
-      }
-
-      // Calculate total possible students for this quiz
-      const totalPossibleStudents = quiz.allowedGroups.length * 60; // Assuming 60 students per section
-      statistics.totalStudents += totalPossibleStudents;
-    });
-
-    // Process submissions
-    let totalScore = 0;
+    // Initialize department stats object
     const departmentStats = {};
-    const yearStats = {};
-    const subjectStats = {};
-    const timeSeriesMap = {};
 
-    submissions.forEach(submission => {
-      statistics.totalSubmissions++;
-      
-      // Calculate score percentage
-      const quiz = quizzes.find(q => q._id.toString() === submission.quiz.toString());
-      if (!quiz) return;
-      
-      const scorePercentage = (submission.totalMarks / quiz.totalMarks) * 100;
-      totalScore += scorePercentage;
-
-      // Update score distribution
-      if (scorePercentage > 90) statistics.scoreDistribution.excellent++;
-      else if (scorePercentage > 70) statistics.scoreDistribution.good++;
-      else if (scorePercentage > 50) statistics.scoreDistribution.average++;
-      else statistics.scoreDistribution.poor++;
-
-      // Update department stats
-      if (submission.student?.department) {
-        if (!departmentStats[submission.student.department]) {
-          departmentStats[submission.student.department] = {
-            totalSubmissions: 0,
-            totalScore: 0
-          };
+    // Process each quiz
+    for (const quiz of quizzes) {
+      try {
+        // Count active and completed quizzes
+        if (new Date(quiz.endTime) < now) {
+          statistics.completedQuizzes++;
+        } else if (new Date(quiz.startTime) <= now && new Date(quiz.endTime) >= now) {
+          statistics.activeQuizzes++;
         }
-        departmentStats[submission.student.department].totalSubmissions++;
-        departmentStats[submission.student.department].totalScore += scorePercentage;
-      }
 
-      // Update year stats
-      if (submission.student?.year) {
-        if (!yearStats[submission.student.year]) {
-          yearStats[submission.student.year] = {
-            totalSubmissions: 0,
-            totalScore: 0
-          };
+        // Get actual authorized students for this quiz
+        const authorizedStudents = await User.find({
+          role: 'student',
+          department: { $in: quiz.allowedGroups.map(group => group.department) },
+          year: { $in: quiz.allowedGroups.map(group => group.year) },
+          section: { $in: quiz.allowedGroups.map(group => group.section) }
+        }).countDocuments();
+
+        statistics.totalStudents += authorizedStudents;
+
+        // Initialize department stats for each department in this quiz
+        quiz.allowedGroups.forEach(group => {
+          if (!departmentStats[group.department]) {
+            departmentStats[group.department] = {
+              totalStudents: 0,
+              totalSubmissions: 0,
+              totalScore: 0
+            };
+          }
+          // Add authorized students to department stats
+          departmentStats[group.department].totalStudents += authorizedStudents / quiz.allowedGroups.length;
+        });
+
+        // Get submissions for this quiz
+        const submissions = await QuizSubmission.find({ 
+          quiz: quiz._id,
+          status: 'evaluated'
+        }).populate('student', 'department year').lean();
+
+        statistics.totalSubmissions += submissions.length;
+
+        // Process submissions for this quiz
+        let quizTotalScore = 0;
+        submissions.forEach(submission => {
+          if (!submission.answers || !quiz.totalMarks) return;
+
+          // Calculate total marks for this submission
+          const totalMarks = submission.answers.reduce((sum, ans) => sum + (ans.marks || 0), 0);
+          const scorePercentage = (totalMarks / quiz.totalMarks) * 100;
+          quizTotalScore += scorePercentage;
+
+          // Update score distribution
+          if (scorePercentage > 90) statistics.scoreDistribution.excellent++;
+          else if (scorePercentage > 70) statistics.scoreDistribution.good++;
+          else if (scorePercentage > 50) statistics.scoreDistribution.average++;
+          else statistics.scoreDistribution.poor++;
+
+          // Update department stats
+          if (submission.student?.department && departmentStats[submission.student.department]) {
+            departmentStats[submission.student.department].totalSubmissions++;
+            departmentStats[submission.student.department].totalScore += scorePercentage;
+          }
+        });
+
+        // Update average score
+        if (submissions.length > 0) {
+          statistics.averageScore += quizTotalScore / submissions.length;
         }
-        yearStats[submission.student.year].totalSubmissions++;
-        yearStats[submission.student.year].totalScore += scorePercentage;
+      } catch (error) {
+        console.error(`Error processing quiz ${quiz._id}:`, error);
+        // Continue with next quiz
+        continue;
       }
+    }
 
-      // Update subject stats
-      const subjectId = quiz.subject._id.toString();
-      if (!subjectStats[subjectId]) {
-        subjectStats[subjectId] = {
-          name: quiz.subject.name,
-          code: quiz.subject.code,
-          totalSubmissions: 0,
-          totalScore: 0
-        };
-      }
-      subjectStats[subjectId].totalSubmissions++;
-      subjectStats[subjectId].totalScore += scorePercentage;
-
-      // Update time series data
-      const date = new Date(submission.createdAt).toISOString().split('T')[0];
-      if (!timeSeriesMap[date]) {
-        timeSeriesMap[date] = {
-          submissions: 0,
-          totalScore: 0
-        };
-      }
-      timeSeriesMap[date].submissions++;
-      timeSeriesMap[date].totalScore += scorePercentage;
-    });
-
-    // Calculate averages and format stats
-    statistics.averageScore = statistics.totalSubmissions > 0 
-      ? totalScore / statistics.totalSubmissions 
-      : 0;
+    // Calculate final average score
+    if (statistics.totalSubmissions > 0) {
+      statistics.averageScore = statistics.averageScore / quizzes.length;
+    }
 
     // Format department stats
     statistics.departmentWiseStats = Object.entries(departmentStats).map(([dept, stats]) => ({
-      department: dept,
-      submissions: stats.totalSubmissions,
-      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
+      name: dept,
+      submissionCount: stats.totalSubmissions,
+      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0,
+      submissionRate: stats.totalStudents > 0 ? (stats.totalSubmissions / stats.totalStudents) * 100 : 0
     }));
 
-    // Format year stats
-    statistics.yearWiseStats = Object.entries(yearStats).map(([year, stats]) => ({
-      year: parseInt(year),
-      submissions: stats.totalSubmissions,
-      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
-    }));
-
-    // Format subject stats
-    statistics.subjectWiseStats = Object.entries(subjectStats).map(([_, stats]) => ({
-      name: stats.name,
-      code: stats.code,
-      submissions: stats.totalSubmissions,
-      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
-    }));
-
-    // Format time series data
-    statistics.timeSeriesData = Object.entries(timeSeriesMap)
-      .map(([date, data]) => ({
-        date,
-        submissions: data.submissions,
-        averageScore: data.submissions > 0 ? data.totalScore / data.submissions : 0
-      }))
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
-
+    console.log('Sending statistics:', statistics);
     res.json(statistics);
   } catch (error) {
     console.error('Error fetching quiz statistics:', error);

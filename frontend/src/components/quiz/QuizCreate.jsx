@@ -23,7 +23,8 @@ import {
   RadioGroup,
   FormControlLabel,
   FormLabel,
-  CircularProgress
+  CircularProgress,
+  FormHelperText
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -63,16 +64,14 @@ const MenuProps = {
 };
 
 const selectStyles = {
-  minHeight: '56px',
-  display: 'flex',
-  alignItems: 'center',
+  width: '100%',
   '& .MuiSelect-select': {
+    minHeight: '56px',
     display: 'flex',
     flexWrap: 'wrap',
-    gap: 0.5,
+    gap: '8px',
     alignItems: 'center',
-    minHeight: '56px !important',
-    padding: '14px'
+    padding: '8px 14px'
   },
   '& .MuiOutlinedInput-notchedOutline': {
     borderColor: 'rgba(0, 0, 0, 0.23)'
@@ -82,11 +81,6 @@ const selectStyles = {
   },
   '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
     borderColor: 'primary.main'
-  },
-  '& .MuiInputLabel-root': {
-    backgroundColor: 'white',
-    padding: '0 8px',
-    marginLeft: '-4px'
   }
 };
 
@@ -97,15 +91,18 @@ const QuizCreate = () => {
   const [subjects, setSubjects] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [selectedFilters, setSelectedFilters] = useState({
+    year: '',
+    department: user?.department || '',
+    semester: '',
+  });
   const [quizData, setQuizData] = useState({
     title: '',
     subject: '',
     duration: 30,
     startTime: '',
     endTime: '',
-    allowedYears: [],
-    allowedDepartments: [],
-    allowedSections: [],
+    allowedGroups: [],
     questions: [
       {
         question: '',
@@ -117,20 +114,42 @@ const QuizCreate = () => {
   });
 
   useEffect(() => {
+    // Set department from user and fetch initial subjects
+    if (user?.department) {
+      setSelectedFilters(prev => ({
+        ...prev,
+        department: user.department
+      }));
+    }
+  }, [user]);
+
+  useEffect(() => {
     fetchSubjects();
-  }, []);
+  }, [selectedFilters]);
 
   const fetchSubjects = async () => {
     try {
       setLoading(true);
-      console.log('Fetching subjects...');
-      const response = await api.get('/subject');
-      console.log('Subjects response:', response);
-      if (Array.isArray(response)) {
-        setSubjects(response);
+      console.log('Fetching subjects with filters:', selectedFilters);
+      
+      // Only fetch subjects if we have both year and semester selected
+      if (selectedFilters.year && selectedFilters.semester) {
+        const response = await api.get('/subject', {
+          params: {
+            department: selectedFilters.department,
+            year: selectedFilters.year,
+            semester: selectedFilters.semester
+          }
+        });
+        console.log('Subjects response:', response);
+        if (Array.isArray(response)) {
+          setSubjects(response);
+        } else {
+          console.error('Invalid subjects data:', response);
+          setError('Failed to load subjects. Please try again.');
+        }
       } else {
-        console.error('Invalid subjects data:', response);
-        setError('Failed to load subjects. Please try again.');
+        setSubjects([]); // Clear subjects if year or semester is not selected
       }
     } catch (error) {
       console.error('Error fetching subjects:', error);
@@ -140,6 +159,51 @@ const QuizCreate = () => {
     }
   };
 
+  const getSemestersByYear = (year) => {
+    switch (parseInt(year)) {
+      case 1: return [
+        { value: 1, label: 'First Semester' },
+        { value: 2, label: 'Second Semester' }
+      ];
+      case 2: return [
+        { value: 3, label: 'Third Semester' },
+        { value: 4, label: 'Fourth Semester' }
+      ];
+      case 3: return [
+        { value: 5, label: 'Fifth Semester' },
+        { value: 6, label: 'Sixth Semester' }
+      ];
+      case 4: return [
+        { value: 7, label: 'Seventh Semester' },
+        { value: 8, label: 'Eighth Semester' }
+      ];
+      default: return [];
+    }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setSelectedFilters(prev => {
+      const newFilters = {
+        ...prev,
+        [name]: value
+      };
+      
+      // Reset semester when year changes
+      if (name === 'year') {
+        newFilters.semester = '';
+      }
+      
+      // Reset subject when any filter changes
+      setQuizData(prev => ({
+        ...prev,
+        subject: ''
+      }));
+      
+      return newFilters;
+    });
+  };
+
   const validateBasicDetails = () => {
     if (!quizData.title.trim()) return 'Quiz title is required';
     if (!quizData.subject) return 'Subject is required';
@@ -147,9 +211,7 @@ const QuizCreate = () => {
     if (!quizData.startTime) return 'Start time is required';
     if (!quizData.endTime) return 'End time is required';
     if (new Date(quizData.endTime) <= new Date(quizData.startTime)) return 'End time must be after start time';
-    if (quizData.allowedYears.length === 0) return 'Select at least one year';
-    if (quizData.allowedDepartments.length === 0) return 'Select at least one department';
-    if (quizData.allowedSections.length === 0) return 'Select at least one section';
+    if (quizData.allowedGroups.length === 0) return 'Select at least one section';
     return null;
   };
 
@@ -273,20 +335,8 @@ const QuizCreate = () => {
         const transformedData = {
           ...quizData,
           // Create an array of allowed combinations
-          allowedGroups: quizData.allowedYears.flatMap(year =>
-            quizData.allowedDepartments.flatMap(department =>
-              quizData.allowedSections.map(section => ({
-                year: parseInt(year),
-                department,
-                section
-              }))
-            )
-          )
+          allowedGroups: quizData.allowedGroups
         };
-        // Remove the individual arrays as they're now combined in allowedGroups
-        delete transformedData.allowedYears;
-        delete transformedData.allowedDepartments;
-        delete transformedData.allowedSections;
         
         await api.post('/quiz', transformedData);
         navigate('/quizzes');
@@ -305,15 +355,62 @@ const QuizCreate = () => {
     <Grid container spacing={3}>
       <Grid item xs={12}>
         <TextField
-          required
           fullWidth
+          required
           label="Quiz Title"
           name="title"
           value={quizData.title}
           onChange={handleBasicDetailsChange}
-          placeholder="Enter quiz title"
         />
       </Grid>
+
+      <Grid item xs={12} sm={4}>
+        <FormControl fullWidth required>
+          <InputLabel>Year</InputLabel>
+          <Select
+            name="year"
+            value={selectedFilters.year}
+            onChange={handleFilterChange}
+            label="Year"
+          >
+            {[1, 2, 3, 4].map(year => (
+              <MenuItem key={year} value={year}>Year {year}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
+
+      <Grid item xs={12} sm={4}>
+        <FormControl fullWidth required>
+          <InputLabel>Semester</InputLabel>
+          <Select
+            name="semester"
+            value={selectedFilters.semester}
+            onChange={handleFilterChange}
+            label="Semester"
+            disabled={!selectedFilters.year}
+          >
+            {getSemestersByYear(selectedFilters.year).map(({ value, label }) => (
+              <MenuItem key={value} value={value}>{label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
+
+      <Grid item xs={12} sm={4}>
+        <FormControl fullWidth required>
+          <InputLabel>Department</InputLabel>
+          <Select
+            name="department"
+            value={selectedFilters.department}
+            disabled={true} // Department is fixed to faculty's department
+            label="Department"
+          >
+            <MenuItem value={user?.department}>{user?.department}</MenuItem>
+          </Select>
+        </FormControl>
+      </Grid>
+
       <Grid item xs={12}>
         <FormControl fullWidth required>
           <InputLabel>Subject</InputLabel>
@@ -322,36 +419,72 @@ const QuizCreate = () => {
             value={quizData.subject}
             onChange={handleBasicDetailsChange}
             label="Subject"
-            displayEmpty
-            sx={selectStyles}
-            MenuProps={MenuProps}
+            disabled={!selectedFilters.year || !selectedFilters.semester}
           >
-            <MenuItem disabled value="">
-              <em>Select a subject</em>
-            </MenuItem>
-            {subjects.length === 0 ? (
-              <MenuItem disabled value="">
-                No subjects available. Please add subjects first.
+            {subjects.map(subject => (
+              <MenuItem key={subject._id} value={subject._id}>
+                {subject.name} ({subject.code})
               </MenuItem>
-            ) : (
-              subjects.map((subject) => (
-                <MenuItem key={subject._id} value={subject._id}>
-                  {subject.name} ({subject.code})
-                </MenuItem>
-              ))
-            )}
+            ))}
           </Select>
-          {subjects.length === 0 && (
-            <Alert severity="warning" sx={{ mt: 1 }}>
-              No subjects are available. Please contact an administrator to add subjects.
-            </Alert>
+        </FormControl>
+      </Grid>
+
+      <Grid item xs={12} sm={4}>
+        <FormControl fullWidth required>
+          <InputLabel>Sections</InputLabel>
+          <Select
+            multiple
+            name="allowedGroups"
+            value={quizData.allowedGroups.map(group => group.section)}
+            onChange={(e) => {
+              const selectedSections = e.target.value;
+              // Create allowed groups with the selected sections
+              const groups = selectedSections.map(section => ({
+                year: parseInt(selectedFilters.year),
+                department: selectedFilters.department,
+                section: section
+              }));
+              setQuizData(prev => ({
+                ...prev,
+                allowedGroups: groups
+              }));
+            }}
+            label="Sections"
+            sx={selectStyles}
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((value) => (
+                  <Chip key={value} label={`Section ${value}`} />
+                ))}
+              </Box>
+            )}
+            displayEmpty
+            MenuProps={{
+              PaperProps: {
+                style: {
+                  maxHeight: 48 * 4.5 + 8,
+                  width: '250px'
+                }
+              }
+            }}
+          >
+            {['A', 'B', 'C', 'D', 'E'].map(section => (
+              <MenuItem key={section} value={section}>
+                Section {section}
+              </MenuItem>
+            ))}
+          </Select>
+          {quizData.allowedGroups.length === 0 && (
+            <FormHelperText>Select at least one section</FormHelperText>
           )}
         </FormControl>
       </Grid>
-      <Grid item xs={12} sm={6}>
+
+      <Grid item xs={12} sm={4}>
         <TextField
-          required
           fullWidth
+          required
           type="number"
           label="Duration (minutes)"
           name="duration"
@@ -360,10 +493,11 @@ const QuizCreate = () => {
           inputProps={{ min: 1 }}
         />
       </Grid>
+
       <Grid item xs={12} sm={6}>
         <TextField
-          required
           fullWidth
+          required
           type="datetime-local"
           label="Start Time"
           name="startTime"
@@ -372,10 +506,11 @@ const QuizCreate = () => {
           InputLabelProps={{ shrink: true }}
         />
       </Grid>
+
       <Grid item xs={12} sm={6}>
         <TextField
-          required
           fullWidth
+          required
           type="datetime-local"
           label="End Time"
           name="endTime"
@@ -383,126 +518,6 @@ const QuizCreate = () => {
           onChange={handleBasicDetailsChange}
           InputLabelProps={{ shrink: true }}
         />
-      </Grid>
-      <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required variant="outlined">
-          <InputLabel id="allowed-years-label" sx={{ backgroundColor: 'white', px: 1 }}>
-            Allowed Years
-          </InputLabel>
-          <Select
-            labelId="allowed-years-label"
-            multiple
-            name="allowedYears"
-            value={quizData.allowedYears}
-            onChange={(e) => handleMultiSelectChange(e, 'allowedYears')}
-            input={<OutlinedInput label="Allowed Years" />}
-            displayEmpty
-            renderValue={(selected) => {
-              if (selected.length === 0) {
-                return <em>Select years</em>;
-              }
-              return (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => (
-                    <Chip 
-                      key={value} 
-                      label={`Year ${value}`}
-                      sx={{ m: 0.5 }}
-                    />
-                  ))}
-                </Box>
-              );
-            }}
-            MenuProps={MenuProps}
-            sx={selectStyles}
-          >
-            {YEARS.map((year) => (
-              <MenuItem key={year.value} value={year.value}>
-                {year.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Grid>
-      <Grid item xs={12}>
-        <FormControl fullWidth required variant="outlined">
-          <InputLabel id="allowed-departments-label" sx={{ backgroundColor: 'white', px: 1 }}>
-            Allowed Departments
-          </InputLabel>
-          <Select
-            labelId="allowed-departments-label"
-            multiple
-            name="allowedDepartments"
-            value={quizData.allowedDepartments}
-            onChange={(e) => handleMultiSelectChange(e, 'allowedDepartments')}
-            input={<OutlinedInput label="Allowed Departments" />}
-            displayEmpty
-            renderValue={(selected) => {
-              if (selected.length === 0) {
-                return <em>Select departments</em>;
-              }
-              return (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => (
-                    <Chip 
-                      key={value} 
-                      label={value}
-                      sx={{ m: 0.5 }}
-                    />
-                  ))}
-                </Box>
-              );
-            }}
-            MenuProps={MenuProps}
-            sx={selectStyles}
-          >
-            {DEPARTMENTS.map((dept) => (
-              <MenuItem key={dept} value={dept}>
-                {dept}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Grid>
-      <Grid item xs={12}>
-        <FormControl fullWidth required variant="outlined">
-          <InputLabel id="allowed-sections-label" sx={{ backgroundColor: 'white', px: 1 }}>
-            Sections
-          </InputLabel>
-          <Select
-            labelId="allowed-sections-label"
-            multiple
-            name="allowedSections"
-            value={quizData.allowedSections}
-            onChange={(e) => handleMultiSelectChange(e, 'allowedSections')}
-            input={<OutlinedInput label="Sections" />}
-            displayEmpty
-            renderValue={(selected) => {
-              if (selected.length === 0) {
-                return <em>Select sections</em>;
-              }
-              return (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => (
-                    <Chip 
-                      key={value} 
-                      label={`Section ${value}`}
-                      sx={{ m: 0.5 }}
-                    />
-                  ))}
-                </Box>
-              );
-            }}
-            MenuProps={MenuProps}
-            sx={selectStyles}
-          >
-            {SECTIONS.map((section) => (
-              <MenuItem key={section} value={section}>
-                Section {section}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
       </Grid>
     </Grid>
   );
