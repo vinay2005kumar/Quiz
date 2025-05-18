@@ -12,7 +12,8 @@ import {
   Select,
   MenuItem,
   Grid,
-  Paper
+  Paper,
+  CircularProgress
 } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import ErrorBoundary from '../common/ErrorBoundary';
@@ -51,6 +52,7 @@ const Register = () => {
   const [submitError, setSubmitError] = useState('');
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
 
   const departments = [
     'Computer Science',
@@ -138,9 +140,11 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitError('');
+    setIsLoading(true);
 
     if (!validateForm()) {
       setSubmitError('Please fix the errors before submitting');
+      setIsLoading(false);
       return;
     }
 
@@ -156,14 +160,14 @@ const Register = () => {
 
       console.log('Submitting form data:', submissionData);
       const result = await register(submissionData);
-      if (result.success) {
-        navigate('/dashboard');
-      } else {
+      if (!result.success) {
         setSubmitError(result.error);
       }
     } catch (error) {
       console.error('Form submission error:', error);
       setSubmitError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -198,6 +202,7 @@ const Register = () => {
                     onChange={handleChange}
                     error={!!errors.name}
                     helperText={errors.name}
+                    disabled={isLoading}
                   />
                 </Grid>
                 <Grid item xs={12}>
@@ -211,6 +216,7 @@ const Register = () => {
                     onChange={handleChange}
                     error={!!errors.email}
                     helperText={errors.email}
+                    disabled={isLoading}
                   />
                 </Grid>
                 <Grid item xs={12}>
@@ -224,10 +230,11 @@ const Register = () => {
                     onChange={handleChange}
                     error={!!errors.password}
                     helperText={errors.password || 'Password must be at least 6 characters'}
+                    disabled={isLoading}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth required>
+                  <FormControl fullWidth required error={!!errors.role}>
                     <InputLabel id="role-label">Role</InputLabel>
                     <Select
                       labelId="role-label"
@@ -236,6 +243,7 @@ const Register = () => {
                       onChange={handleChange}
                       label="Role"
                       sx={selectStyles}
+                      disabled={isLoading}
                     >
                       <MenuItem value="student">Student</MenuItem>
                       <MenuItem value="faculty">Faculty</MenuItem>
@@ -252,6 +260,7 @@ const Register = () => {
                       onChange={handleChange}
                       label="Department"
                       sx={selectStyles}
+                      disabled={isLoading}
                     >
                       {departments.map(dept => (
                         <MenuItem key={dept} value={dept}>
@@ -273,6 +282,7 @@ const Register = () => {
                           onChange={handleChange}
                           label="Year"
                           sx={selectStyles}
+                          disabled={isLoading}
                         >
                           <MenuItem value={1}>First Year</MenuItem>
                           <MenuItem value={2}>Second Year</MenuItem>
@@ -291,6 +301,7 @@ const Register = () => {
                           onChange={handleChange}
                           label="Section"
                           sx={selectStyles}
+                          disabled={isLoading}
                         >
                           {sections.map(section => (
                             <MenuItem key={section} value={section}>
@@ -310,6 +321,7 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.admissionNumber}
                         helperText={errors.admissionNumber || 'Format: y22cs021 or l22cs021'}
+                        disabled={isLoading}
                       />
                     </Grid>
                   </>
@@ -320,9 +332,25 @@ const Register = () => {
                 fullWidth
                 variant="contained"
                 size="large"
-                sx={{ mt: 4, mb: 2, py: 1.5 }}
+                sx={{ mt: 4, mb: 2, py: 1.5, height: 48 }}
+                disabled={isLoading}
               >
-                Register
+                {isLoading ? (
+                  <>
+                    <CircularProgress size={24} sx={{ mr: 1 }} />
+                    Registering...
+                  </>
+                ) : (
+                  'Register'
+                )}
+              </Button>
+              <Button
+                fullWidth
+                variant="text"
+                onClick={() => navigate('/login')}
+                disabled={isLoading}
+              >
+                Already have an account? Sign In
               </Button>
             </Box>
           </Box>

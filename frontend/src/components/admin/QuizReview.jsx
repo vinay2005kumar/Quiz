@@ -23,7 +23,7 @@ import {
   LinearProgress
 } from '@mui/material';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import axios from 'axios';
+import api from '../../config/axios';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
@@ -61,9 +61,9 @@ const QuizReview = () => {
       setLoading(true);
       setError('');
       console.log('Fetching statistics with filters:', filters);
-      const response = await axios.get('/quiz/statistics', { params: filters });
-      console.log('Statistics response:', response.data);
-      setStats(response.data);
+      const response = await api.get('/quiz/statistics', { params: filters });
+      console.log('Statistics response:', response);
+      setStats(response);
     } catch (error) {
       console.error('Error fetching statistics:', error);
       setError(error.response?.data?.message || 'Failed to load statistics');

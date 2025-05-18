@@ -93,36 +93,22 @@ const quizSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  allowedYears: {
-    type: [Number],
-    required: true,
-    validate: {
-      validator: function(years) {
-        return years.length > 0 && years.every(year => year >= 1 && year <= 4);
-      },
-      message: 'At least one valid year (1-4) must be selected'
+  allowedGroups: [{
+    year: {
+      type: Number,
+      required: true,
+      min: 1,
+      max: 4
+    },
+    department: {
+      type: String,
+      required: true
+    },
+    section: {
+      type: String,
+      required: true
     }
-  },
-  allowedDepartments: {
-    type: [String],
-    required: true,
-    validate: {
-      validator: function(departments) {
-        return departments.length > 0;
-      },
-      message: 'At least one department must be selected'
-    }
-  },
-  allowedSections: {
-    type: [String],
-    required: true,
-    validate: {
-      validator: function(sections) {
-        return sections.length > 0;
-      },
-      message: 'At least one section must be selected'
-    }
-  },
+  }],
   sectionEndTimes: {
     type: Map,
     of: {
@@ -171,12 +157,12 @@ const quizSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for efficient querying of active quizzes by department, year, and section
+// Index for efficient querying
 quizSchema.index({
   isActive: 1,
-  allowedDepartments: 1,
-  allowedYears: 1,
-  allowedSections: 1
+  'allowedGroups.department': 1,
+  'allowedGroups.year': 1,
+  'allowedGroups.section': 1
 });
 
 // Virtual field for submissions
@@ -194,12 +180,14 @@ quizSchema.set('toObject', { virtuals: true });
 quizSchema.methods.canStudentAccess = function(student) {
   return (
     this.isActive &&
-    this.allowedDepartments.includes(student.department) &&
-    this.allowedYears.includes(student.year) &&
-    this.allowedSections.includes(student.section) &&
-    (!this.sectionEndTimes.has(student.section) || 
-     (this.sectionEndTimes.get(student.section).isActive &&
-      new Date() < this.sectionEndTimes.get(student.section).endTime))
+    this.allowedGroups.some(group => 
+      group.department === student.department &&
+      group.year === student.year &&
+      group.section === student.section &&
+      (!this.sectionEndTimes.has(student.section) || 
+       (this.sectionEndTimes.get(student.section).isActive &&
+        new Date() < this.sectionEndTimes.get(student.section).endTime))
+    )
   );
 };
 

@@ -31,7 +31,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const SubjectList = () => {
@@ -99,8 +99,8 @@ const SubjectList = () => {
 
   const fetchSubjects = async () => {
     try {
-      const response = await axios.get('/subject');
-      const sortedSubjects = response.data.sort((a, b) => {
+      const response = await api.get('/subject');
+      const sortedSubjects = response.sort((a, b) => {
         if (a.year !== b.year) return a.year - b.year;
         return a.semester - b.semester;
       });
@@ -108,6 +108,7 @@ const SubjectList = () => {
       setFilteredSubjects(sortedSubjects);
       setLoading(false);
     } catch (error) {
+      console.error('Error fetching subjects:', error);
       setError('Failed to fetch subjects');
       setLoading(false);
     }
@@ -183,7 +184,7 @@ const SubjectList = () => {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`/subject/${id}`);
+      await api.delete(`/subject/${id}`);
       fetchSubjects();
       setSubjectToDelete(null);
     } catch (error) {

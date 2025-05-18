@@ -7,7 +7,8 @@ import {
   TextField,
   Button,
   Alert,
-  Paper
+  Paper,
+  CircularProgress
 } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 
@@ -15,18 +16,24 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
-    const result = await login(email, password);
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
-      setError(result.error);
+    try {
+      const result = await login(email, password);
+      if (!result.success) {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -70,6 +77,7 @@ const Login = () => {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              disabled={isLoading}
             />
             <TextField
               margin="normal"
@@ -82,19 +90,29 @@ const Login = () => {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              disabled={isLoading}
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{ mt: 3, mb: 2, height: 48 }}
+              disabled={isLoading}
             >
-              Sign In
+              {isLoading ? (
+                <>
+                  <CircularProgress size={24} sx={{ mr: 1 }} />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </Button>
             <Button
               fullWidth
               variant="text"
               onClick={() => navigate('/register')}
+              disabled={isLoading}
             >
               Don't have an account? Sign Up
             </Button>

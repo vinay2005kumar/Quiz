@@ -50,7 +50,7 @@ const upload = multer({
 router.post('/', auth, authorize('faculty', 'admin'), async (req, res) => {
   try {
     // Validate required fields
-    const requiredFields = ['title', 'subject', 'duration', 'startTime', 'endTime', 'allowedYears', 'allowedDepartments', 'questions'];
+    const requiredFields = ['title', 'subject', 'duration', 'startTime', 'endTime', 'allowedGroups', 'questions'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     
     if (missingFields.length > 0) {
@@ -58,6 +58,30 @@ router.post('/', auth, authorize('faculty', 'admin'), async (req, res) => {
         message: 'Missing required fields', 
         fields: missingFields 
       });
+    }
+
+    // Validate allowedGroups
+    if (!Array.isArray(req.body.allowedGroups) || req.body.allowedGroups.length === 0) {
+      return res.status(400).json({
+        message: 'Quiz must have at least one allowed group'
+      });
+    }
+
+    // Validate each allowed group
+    for (let i = 0; i < req.body.allowedGroups.length; i++) {
+      const group = req.body.allowedGroups[i];
+      if (!group.year || !group.department || !group.section ||
+          typeof group.year !== 'number' || group.year < 1 || group.year > 4) {
+        return res.status(400).json({
+          message: 'Invalid allowed group format',
+          groupIndex: i,
+          expected: {
+            year: 'number (1-4)',
+            department: 'string',
+            section: 'string'
+          }
+        });
+      }
     }
 
     // Validate questions array
@@ -117,16 +141,28 @@ router.get('/', auth, async (req, res) => {
         isActive: true,
         startTime: { $lte: new Date() },
         endTime: { $gte: new Date() },
-        allowedYears: req.user.year,
-        allowedDepartments: req.user.department,
-        allowedSections: req.user.section
+        allowedGroups: {
+          $elemMatch: {
+            year: req.user.year,
+            department: req.user.department,
+            section: req.user.section
+          }
+        }
       };
     } else {
       // For faculty/admin, apply filters if provided
-      if (department && department !== 'all') query.allowedDepartments = department;
-      if (year && year !== 'all') query.allowedYears = parseInt(year);
-      if (section && section !== 'all') query.allowedSections = section;
-      if (subject && subject !== 'all') query.subject = subject;
+      if (department && department !== 'all') {
+        query['allowedGroups.department'] = department;
+      }
+      if (year && year !== 'all') {
+        query['allowedGroups.year'] = parseInt(year);
+      }
+      if (section && section !== 'all') {
+        query['allowedGroups.section'] = section;
+      }
+      if (subject && subject !== 'all') {
+        query.subject = subject;
+      }
       
       // If faculty, only show their quizzes
       if (req.user.role === 'faculty') {
@@ -142,9 +178,8 @@ router.get('/', auth, async (req, res) => {
 
     // Add submission statistics to each quiz
     const enrichedQuizzes = await Promise.all(quizzes.map(async (quiz) => {
-      const totalAuthorized = (quiz.allowedYears?.length || 0) * 
-        (quiz.allowedDepartments?.length || 0) * 
-        (quiz.allowedSections?.length || 0) * 60; // Assuming 60 students per section
+      // Calculate total authorized students based on allowed groups
+      const totalAuthorized = quiz.allowedGroups.length * 60; // Assuming 60 students per section
 
       const submissions = await QuizSubmission.find({
         quiz: quiz._id,
@@ -182,10 +217,18 @@ router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) 
     const query = {};
     
     // Add filters only if they are not 'all'
-    if (department && department !== 'all') query['allowedDepartments'] = department;
-    if (year && year !== 'all') query['allowedYears'] = parseInt(year);
-    if (section && section !== 'all') query['allowedSections'] = section;
-    if (subject && subject !== 'all') query['subject'] = subject;
+    if (department && department !== 'all') {
+      query['allowedGroups.department'] = department;
+    }
+    if (year && year !== 'all') {
+      query['allowedGroups.year'] = parseInt(year);
+    }
+    if (section && section !== 'all') {
+      query['allowedGroups.section'] = section;
+    }
+    if (subject && subject !== 'all') {
+      query['subject'] = subject;
+    }
 
     console.log('Constructed MongoDB query:', query);
 
@@ -232,10 +275,7 @@ router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) 
       }
 
       // Calculate total possible students for this quiz
-      const totalPossibleStudents = (quiz.allowedYears?.length || 0) * 
-        (quiz.allowedDepartments?.length || 0) * 
-        (quiz.allowedSections?.length || 0) * 60; // Assuming average 60 students per section
-      
+      const totalPossibleStudents = quiz.allowedGroups.length * 60; // Assuming 60 students per section
       statistics.totalStudents += totalPossibleStudents;
     });
 
@@ -253,70 +293,62 @@ router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) 
       const quiz = quizzes.find(q => q._id.toString() === submission.quiz.toString());
       if (!quiz) return;
       
-      const totalMarks = quiz.totalMarks || quiz.questions.reduce((sum, q) => sum + q.marks, 0);
-      const score = submission.answers.reduce((sum, ans) => sum + (ans.marks || 0), 0);
-      const percentage = (score / totalMarks) * 100;
-      
-      totalScore += percentage;
+      const scorePercentage = (submission.totalMarks / quiz.totalMarks) * 100;
+      totalScore += scorePercentage;
 
       // Update score distribution
-      if (percentage >= 90) statistics.scoreDistribution.excellent++;
-      else if (percentage >= 70) statistics.scoreDistribution.good++;
-      else if (percentage >= 50) statistics.scoreDistribution.average++;
+      if (scorePercentage > 90) statistics.scoreDistribution.excellent++;
+      else if (scorePercentage > 70) statistics.scoreDistribution.good++;
+      else if (scorePercentage > 50) statistics.scoreDistribution.average++;
       else statistics.scoreDistribution.poor++;
 
       // Update department stats
       if (submission.student?.department) {
         if (!departmentStats[submission.student.department]) {
           departmentStats[submission.student.department] = {
-            name: submission.student.department,
-            submissionCount: 0,
+            totalSubmissions: 0,
             totalScore: 0
           };
         }
-        departmentStats[submission.student.department].submissionCount++;
-        departmentStats[submission.student.department].totalScore += percentage;
+        departmentStats[submission.student.department].totalSubmissions++;
+        departmentStats[submission.student.department].totalScore += scorePercentage;
       }
 
       // Update year stats
       if (submission.student?.year) {
         if (!yearStats[submission.student.year]) {
           yearStats[submission.student.year] = {
-            year: submission.student.year,
-            submissionCount: 0,
+            totalSubmissions: 0,
             totalScore: 0
           };
         }
-        yearStats[submission.student.year].submissionCount++;
-        yearStats[submission.student.year].totalScore += percentage;
+        yearStats[submission.student.year].totalSubmissions++;
+        yearStats[submission.student.year].totalScore += scorePercentage;
       }
 
       // Update subject stats
-      if (quiz.subject) {
-        const subjectId = quiz.subject._id.toString();
-        if (!subjectStats[subjectId]) {
-          subjectStats[subjectId] = {
-            name: quiz.subject.name,
-            code: quiz.subject.code,
-            submissionCount: 0,
-            totalScore: 0
-          };
-        }
-        subjectStats[subjectId].submissionCount++;
-        subjectStats[subjectId].totalScore += percentage;
-      }
-
-      // Update time series data
-      const date = new Date(submission.submitTime).toISOString().split('T')[0];
-      if (!timeSeriesMap[date]) {
-        timeSeriesMap[date] = {
-          date,
-          submissionCount: 0,
+      const subjectId = quiz.subject._id.toString();
+      if (!subjectStats[subjectId]) {
+        subjectStats[subjectId] = {
+          name: quiz.subject.name,
+          code: quiz.subject.code,
+          totalSubmissions: 0,
           totalScore: 0
         };
       }
-      timeSeriesMap[date].submissionCount++;
-      timeSeriesMap[date].totalScore += percentage;
+      subjectStats[subjectId].totalSubmissions++;
+      subjectStats[subjectId].totalScore += scorePercentage;
+
+      // Update time series data
+      const date = new Date(submission.createdAt).toISOString().split('T')[0];
+      if (!timeSeriesMap[date]) {
+        timeSeriesMap[date] = {
+          submissions: 0,
+          totalScore: 0
+        };
+      }
+      timeSeriesMap[date].submissions++;
+      timeSeriesMap[date].totalScore += scorePercentage;
     });
 
     // Calculate averages and format stats
@@ -325,46 +357,40 @@ router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) 
       : 0;
 
     // Format department stats
-    statistics.departmentWiseStats = Object.values(departmentStats).map(dept => ({
-      name: dept.name,
-      submissionCount: dept.submissionCount,
-      averageScore: dept.submissionCount > 0 ? dept.totalScore / dept.submissionCount : 0,
-      submissionRate: (dept.submissionCount / statistics.totalSubmissions) * 100
+    statistics.departmentWiseStats = Object.entries(departmentStats).map(([dept, stats]) => ({
+      department: dept,
+      submissions: stats.totalSubmissions,
+      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
     }));
 
     // Format year stats
-    statistics.yearWiseStats = Object.values(yearStats).map(year => ({
-      year: year.year,
-      submissionCount: year.submissionCount,
-      averageScore: year.submissionCount > 0 ? year.totalScore / year.submissionCount : 0,
-      submissionRate: (year.submissionCount / statistics.totalSubmissions) * 100
+    statistics.yearWiseStats = Object.entries(yearStats).map(([year, stats]) => ({
+      year: parseInt(year),
+      submissions: stats.totalSubmissions,
+      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
     }));
 
     // Format subject stats
-    statistics.subjectWiseStats = Object.values(subjectStats).map(subj => ({
-      name: subj.name,
-      code: subj.code,
-      submissionCount: subj.submissionCount,
-      averageScore: subj.submissionCount > 0 ? subj.totalScore / subj.submissionCount : 0
+    statistics.subjectWiseStats = Object.entries(subjectStats).map(([_, stats]) => ({
+      name: stats.name,
+      code: stats.code,
+      submissions: stats.totalSubmissions,
+      averageScore: stats.totalSubmissions > 0 ? stats.totalScore / stats.totalSubmissions : 0
     }));
 
     // Format time series data
-    statistics.timeSeriesData = Object.values(timeSeriesMap)
-      .map(day => ({
-        date: day.date,
-        submissionCount: day.submissionCount,
-        averageScore: day.submissionCount > 0 ? day.totalScore / day.submissionCount : 0
+    statistics.timeSeriesData = Object.entries(timeSeriesMap)
+      .map(([date, data]) => ({
+        date,
+        submissions: data.submissions,
+        averageScore: data.submissions > 0 ? data.totalScore / data.submissions : 0
       }))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json(statistics);
   } catch (error) {
     console.error('Error fetching quiz statistics:', error);
-    res.status(500).json({ 
-      message: 'Server error while fetching statistics',
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
@@ -384,9 +410,11 @@ router.get('/:id', auth, async (req, res) => {
       const isAvailable = quiz.isActive &&
         quiz.startTime <= new Date() &&
         quiz.endTime >= new Date() &&
-        quiz.allowedYears.includes(req.user.year) &&
-        quiz.allowedDepartments.includes(req.user.department) &&
-        quiz.allowedSections.includes(req.user.section);
+        quiz.allowedGroups.some(group =>
+          group.year === req.user.year &&
+          group.department === req.user.department &&
+          group.section === req.user.section
+        );
 
       if (!isAvailable) {
         return res.status(403).json({ message: 'Quiz not available' });
@@ -412,9 +440,11 @@ router.post('/:id/start', auth, authorize('student'), async (req, res) => {
     const isAvailable = quiz.isActive &&
       quiz.startTime <= new Date() &&
       quiz.endTime >= new Date() &&
-      quiz.allowedYears.includes(req.user.year) &&
-      quiz.allowedDepartments.includes(req.user.department) &&
-      quiz.allowedSections.includes(req.user.section);
+      quiz.allowedGroups.some(group =>
+        group.year === req.user.year &&
+        group.department === req.user.department &&
+        group.section === req.user.section
+      );
 
     if (!isAvailable) {
       return res.status(403).json({ message: 'Quiz not available' });
@@ -555,9 +585,9 @@ router.get('/:id/authorized-students', auth, authorize('faculty', 'admin'), asyn
     // Get all students who are authorized to take this quiz
     const authorizedStudents = await User.find({
       role: 'student',
-      department: { $in: quiz.allowedDepartments },
-      year: { $in: quiz.allowedYears },
-      section: { $in: quiz.allowedSections }
+      department: { $in: quiz.allowedGroups.map(group => group.department) },
+      year: { $in: quiz.allowedGroups.map(group => group.year) },
+      section: { $in: quiz.allowedGroups.map(group => group.section) }
     }).select('name admissionNumber department year section');
     
     // Get all submissions for this quiz
@@ -605,9 +635,7 @@ router.get('/:id/authorized-students', auth, authorize('faculty', 'admin'), asyn
       quiz: {
         _id: quiz._id,
         title: quiz.title,
-        allowedDepartments: quiz.allowedDepartments,
-        allowedYears: quiz.allowedYears,
-        allowedSections: quiz.allowedSections,
+        allowedGroups: quiz.allowedGroups,
         totalMarks: quiz.totalMarks
       },
       students: result
@@ -655,7 +683,7 @@ router.post('/upload/image', auth, authorize('faculty'), upload.single('file'), 
     }
 
     // Validate required fields
-    const requiredFields = ['title', 'subject', 'duration', 'startTime', 'endTime', 'allowedYears', 'allowedDepartments'];
+    const requiredFields = ['title', 'subject', 'duration', 'startTime', 'endTime', 'allowedGroups'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     
     if (missingFields.length > 0) {
@@ -686,8 +714,7 @@ router.post('/upload/image', auth, authorize('faculty'), upload.single('file'), 
         createdBy: req.user._id,
         questions: extractedData.questions,
         totalMarks: extractedData.totalMarks,
-        allowedYears: JSON.parse(req.body.allowedYears),
-        allowedDepartments: JSON.parse(req.body.allowedDepartments)
+        allowedGroups: JSON.parse(req.body.allowedGroups)
       });
 
       await quiz.save();

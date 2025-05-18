@@ -22,12 +22,13 @@ import {
   Radio,
   RadioGroup,
   FormControlLabel,
-  FormLabel
+  FormLabel,
+  CircularProgress
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const steps = ['Basic Details', 'Questions', 'Review'];
@@ -95,6 +96,7 @@ const QuizCreate = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [subjects, setSubjects] = useState([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [quizData, setQuizData] = useState({
     title: '',
     subject: '',
@@ -120,13 +122,21 @@ const QuizCreate = () => {
 
   const fetchSubjects = async () => {
     try {
+      setLoading(true);
       console.log('Fetching subjects...');
-      const response = await axios.get('/subject');
-      console.log('Subjects response:', response.data);
-      setSubjects(response.data);
+      const response = await api.get('/subject');
+      console.log('Subjects response:', response);
+      if (Array.isArray(response)) {
+        setSubjects(response);
+      } else {
+        console.error('Invalid subjects data:', response);
+        setError('Failed to load subjects. Please try again.');
+      }
     } catch (error) {
-      console.error('Error fetching subjects:', error.response || error);
-      setError('Failed to fetch subjects');
+      console.error('Error fetching subjects:', error);
+      setError('Failed to load subjects. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -241,39 +251,53 @@ const QuizCreate = () => {
     setActiveStep((prevStep) => prevStep - 1);
   };
 
-  const handleSubmit = async () => {
-    try {
-      // Validate all fields before submitting
-      const basicDetailsError = validateBasicDetails();
-      const questionsError = validateQuestions();
-      
-      if (basicDetailsError || questionsError) {
-        setError(basicDetailsError || questionsError);
-        return;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    
+    const validationError = activeStep === 0 
+      ? validateBasicDetails() 
+      : activeStep === 1 
+        ? validateQuestions()
+        : null;
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (activeStep === steps.length - 1) {
+      try {
+        setLoading(true);
+        // Transform the data to match the backend expectations
+        const transformedData = {
+          ...quizData,
+          // Create an array of allowed combinations
+          allowedGroups: quizData.allowedYears.flatMap(year =>
+            quizData.allowedDepartments.flatMap(department =>
+              quizData.allowedSections.map(section => ({
+                year: parseInt(year),
+                department,
+                section
+              }))
+            )
+          )
+        };
+        // Remove the individual arrays as they're now combined in allowedGroups
+        delete transformedData.allowedYears;
+        delete transformedData.allowedDepartments;
+        delete transformedData.allowedSections;
+        
+        await api.post('/quiz', transformedData);
+        navigate('/quizzes');
+      } catch (error) {
+        console.error('Error creating quiz:', error);
+        setError(error.message || 'Failed to create quiz');
+      } finally {
+        setLoading(false);
       }
-
-      await axios.post('/quiz', quizData);
-      navigate('/quizzes');
-    } catch (error) {
-      console.error('Error creating quiz:', error);
-      const errorData = error.response?.data;
-      let errorMessage = 'Failed to create quiz';
-
-      if (errorData) {
-        if (errorData.fields) {
-          errorMessage = `Missing required fields: ${errorData.fields.join(', ')}`;
-        } else if (errorData.questionIndex !== undefined) {
-          errorMessage = `Invalid question format for question ${errorData.questionIndex + 1}`;
-        } else if (errorData.details) {
-          errorMessage = Object.entries(errorData.details)
-            .map(([field, msg]) => `${field}: ${msg}`)
-            .join('; ');
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      }
-
-      setError(errorMessage);
+    } else {
+      setActiveStep((prevStep) => prevStep + 1);
     }
   };
 
@@ -572,6 +596,19 @@ const QuizCreate = () => {
     </Box>
   );
 
+  if (loading) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        minHeight: '80vh'
+      }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <Container maxWidth="lg" sx={{ mt: 2, mb: 4 }}>
         <Button
@@ -608,19 +645,28 @@ const QuizCreate = () => {
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
           {activeStep > 0 && (
-            <Button onClick={handleBack} sx={{ mr: 1 }}>
+            <Button
+              onClick={handleBack}
+              sx={{ mr: 1 }}
+              disabled={loading}
+            >
               Back
             </Button>
           )}
-          {activeStep < steps.length - 1 ? (
-            <Button variant="contained" onClick={handleNext}>
-              Next
-            </Button>
-          ) : (
-            <Button variant="contained" onClick={handleSubmit}>
-              Create Quiz
-            </Button>
-          )}
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <CircularProgress size={24} sx={{ mr: 1 }} />
+                {activeStep === steps.length - 1 ? 'Creating Quiz...' : 'Next'}
+              </>
+            ) : (
+              activeStep === steps.length - 1 ? 'Create Quiz' : 'Next'
+            )}
+          </Button>
         </Box>
       </Paper>
     </Container>

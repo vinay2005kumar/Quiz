@@ -38,11 +38,11 @@ import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PeopleIcon from '@mui/icons-material/People';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import axios from 'axios';
+import api from '../../config/axios';
 
 const departments = ['Computer Science', 'Electronics', 'Mechanical', 'Civil', 'Electrical'];
 const sections = ['A', 'B', 'C', 'D', 'E'];
-const years = ['1', '2', '3', '4'];
+const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 
 const AdmissionRanges = () => {
   const [ranges, setRanges] = useState([]);
@@ -88,8 +88,8 @@ const AdmissionRanges = () => {
 
   const fetchStudentCounts = async () => {
     try {
-      const response = await axios.get('/admin/student-counts');
-      setStudentCounts(response.data);
+      const response = await api.get('/admin/student-counts');
+      setStudentCounts(response);
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to fetch student counts');
     }
@@ -97,8 +97,8 @@ const AdmissionRanges = () => {
 
   const fetchRanges = async () => {
     try {
-      const response = await axios.get('/admin/admission-ranges');
-      setRanges(response.data);
+      const response = await api.get('/admin/admission-ranges');
+      setRanges(response);
       setLoading(false);
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to fetch ranges');
@@ -161,10 +161,10 @@ const AdmissionRanges = () => {
       }
 
       if (selectedRange) {
-        await axios.put(`/admin/admission-ranges/${selectedRange._id}`, dataToSubmit);
+        await api.put(`/admin/admission-ranges/${selectedRange._id}`, dataToSubmit);
         setSuccess('Range updated successfully');
       } else {
-        await axios.post('/admin/admission-ranges', dataToSubmit);
+        await api.post('/admin/admission-ranges', dataToSubmit);
         setSuccess('Range created successfully');
       }
       
@@ -183,7 +183,7 @@ const AdmissionRanges = () => {
 
   const handleDeleteConfirm = async () => {
     try {
-      await axios.delete(`/admin/admission-ranges/${rangeToDelete._id}`);
+      await api.delete(`/admin/admission-ranges/${rangeToDelete._id}`);
       setSuccess('Range deleted successfully');
       fetchRanges();
       fetchStudentCounts();
@@ -242,7 +242,7 @@ const AdmissionRanges = () => {
     formData.append('file', file);
 
     try {
-      await axios.post('/admin/admission-ranges/bulk-upload', formData, {
+      await api.post('/admin/admission-ranges/bulk-upload', formData, {
         headers: { 
           'Content-Type': 'multipart/form-data'
         }
@@ -616,11 +616,25 @@ const AdmissionRanges = () => {
                 <FormControl fullWidth>
                   <InputLabel>Department</InputLabel>
                   <Select
+                    name="department"
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     label="Department"
                     required
+                    displayEmpty
+                    sx={{
+                      minWidth: '200px',
+                      '& .MuiSelect-select': {
+                        display: 'flex',
+                        alignItems: 'center',
+                        minHeight: '56px',
+                        width: '100%'
+                      }
+                    }}
                   >
+                    <MenuItem value="" disabled>
+                      Select Department
+                    </MenuItem>
                     {departments.map((dept) => (
                       <MenuItem key={dept} value={dept}>
                         {dept}
@@ -630,23 +644,59 @@ const AdmissionRanges = () => {
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Year"
-                  value={formData.year}
-                  onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                  required
-                />
+                <FormControl fullWidth>
+                  <InputLabel>Year</InputLabel>
+                  <Select
+                    name="year"
+                    value={formData.year}
+                    onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+                    label="Year"
+                    required
+                    displayEmpty
+                    sx={{
+                      minWidth: '200px',
+                      '& .MuiSelect-select': {
+                        display: 'flex',
+                        alignItems: 'center',
+                        minHeight: '56px',
+                        width: '100%'
+                      }
+                    }}
+                  >
+                    <MenuItem value="" disabled>
+                      Select Year
+                    </MenuItem>
+                    {years.map((year, index) => (
+                      <MenuItem key={index + 1} value={(index + 1).toString()}>
+                        {year}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid item xs={12} sm={4}>
                 <FormControl fullWidth>
                   <InputLabel>Section</InputLabel>
                   <Select
+                    name="section"
                     value={formData.section}
                     onChange={(e) => setFormData({ ...formData, section: e.target.value })}
                     label="Section"
                     required
+                    displayEmpty
+                    sx={{
+                      minWidth: '200px',
+                      '& .MuiSelect-select': {
+                        display: 'flex',
+                        alignItems: 'center',
+                        minHeight: '56px',
+                        width: '100%'
+                      }
+                    }}
                   >
+                    <MenuItem value="" disabled>
+                      Select Section
+                    </MenuItem>
                     {sections.map((section) => (
                       <MenuItem key={section} value={section}>
                         Section {section}

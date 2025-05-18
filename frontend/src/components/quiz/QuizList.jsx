@@ -40,7 +40,7 @@ import {
   YAxis,
   CartesianGrid
 } from 'recharts';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -133,56 +133,43 @@ const QuizList = () => {
 
   const fetchQuizzes = async () => {
     try {
-      let response;
+      setLoading(true);
+      setError('');
       
-      if (user.role === 'admin') {
-        console.log('Fetching quizzes as admin...');
-        // For admin, fetch all quizzes with faculty details and filters
-        const queryParams = new URLSearchParams();
-        if (filters.department !== 'all') queryParams.append('department', filters.department);
-        if (filters.year !== 'all') queryParams.append('year', filters.year);
-        if (filters.section !== 'all') queryParams.append('section', filters.section);
-        if (filters.subject !== 'all') queryParams.append('subject', filters.subject);
-        if (filters.faculty !== 'all') queryParams.append('faculty', filters.faculty);
-
-        const queryString = queryParams.toString();
-        const url = `/quiz/all${queryString ? `?${queryString}` : ''}`;
-        console.log('Fetching URL:', url);
-
-        response = await axios.get(url);
-        console.log('Admin quizzes response:', response.data);
-      } else if (user.role === 'faculty') {
-        // For faculty, fetch their own quizzes
-        response = await axios.get('/quiz');
-      } else {
-        // For students, fetch available quizzes
-        response = await axios.get('/quiz');
-      }
-      setQuizzes(response.data);
-
-      // If user is a student, fetch submissions for all quizzes
+      // Use the correct endpoint for all roles
+      const response = await api.get('/quiz');
+      
+      // Ensure response is an array
+      const quizData = Array.isArray(response) ? response : [];
+      setQuizzes(quizData);
+      
+      // For students, fetch their submissions
       if (user.role === 'student') {
-        const submissionPromises = response.data.map(quiz => 
-          axios.get(`/quiz/${quiz._id}/submission`)
-            .then(res => ({ [quiz._id]: res.data }))
-            .catch(() => ({ [quiz._id]: null }))
+        const submissionPromises = quizData.map(quiz =>
+          api.get(`/quiz/${quiz._id}/submission`)
+            .then(res => ({ quizId: quiz._id, ...res }))
+            .catch(() => null)
         );
-
-        const submissionResults = await Promise.all(submissionPromises);
-        const submissionMap = submissionResults.reduce((acc, curr) => ({ ...acc, ...curr }), {});
+        const submissions = await Promise.all(submissionPromises);
+        const submissionMap = {};
+        submissions.forEach(sub => {
+          if (sub) submissionMap[sub.quizId] = sub;
+        });
         setSubmissions(submissionMap);
       }
       
       // For admin, fetch all submissions for statistics
       if (user.role === 'admin') {
         console.log('Fetching admin statistics...');
-        const allSubmissions = await axios.get('/quiz/all-submissions');
-        console.log('Admin submissions response:', allSubmissions.data);
-        setSubmissions(allSubmissions.data);
+        const allSubmissions = await api.get('/quiz/all-submissions');
+        console.log('Admin submissions response:', allSubmissions);
+        setSubmissions(allSubmissions || {});
       }
     } catch (error) {
       console.error('Error fetching quizzes:', error.response?.data || error.message);
       setError(error.response?.data?.message || 'Failed to fetch quizzes');
+      // Ensure quizzes is an empty array on error
+      setQuizzes([]);
     } finally {
       setLoading(false);
     }
@@ -248,7 +235,7 @@ const QuizList = () => {
       if (user.role !== 'admin') return;
 
       console.log('Fetching detailed statistics with filters:', filters);
-      const response = await axios.get('/quiz/statistics', {
+      const response = await api.get('/quiz/statistics', {
         params: {
           department: filters.department !== 'all' ? filters.department : undefined,
           year: filters.year !== 'all' ? filters.year : undefined,
@@ -354,28 +341,23 @@ const QuizList = () => {
 
   const handleDeleteConfirm = async () => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`/quiz/${quizToDelete._id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      // Remove the quiz from the list
-      setQuizzes(prevQuizzes => prevQuizzes.filter(q => q._id !== quizToDelete._id));
+      await api.delete(`/quiz/${quizToDelete._id}`);
       setShowDeleteConfirm(false);
       setQuizToDelete(null);
+      fetchQuizzes();
     } catch (error) {
-      console.error('Error deleting quiz:', error);
-      setError('Failed to delete quiz');
+      setError(error.response?.data?.message || 'Failed to delete quiz');
     }
   };
 
   const getFilteredQuizzes = () => {
     return quizzes.filter(quiz => {
-      if (filters.year !== 'all' && !quiz.allowedYears.includes(parseInt(filters.year))) return false;
-      if (filters.department !== 'all' && !quiz.allowedDepartments.includes(filters.department)) return false;
-      if (filters.section !== 'all' && !quiz.allowedSections.includes(filters.section)) return false;
-      if (filters.subject !== 'all' && quiz.subject._id !== filters.subject) return false;
-      if (user?.role === 'admin' && filters.faculty !== 'all' && quiz.createdBy._id !== filters.faculty) return false;
+      if (!quiz) return false;
+      if (filters.year !== 'all' && !(quiz.allowedYears || []).includes(parseInt(filters.year))) return false;
+      if (filters.department !== 'all' && !(quiz.allowedDepartments || []).includes(filters.department)) return false;
+      if (filters.section !== 'all' && !(quiz.allowedSections || []).includes(filters.section)) return false;
+      if (filters.subject !== 'all' && quiz?.subject?._id !== filters.subject) return false;
+      if (user?.role === 'admin' && filters.faculty !== 'all' && quiz?.createdBy?._id !== filters.faculty) return false;
       
       if (filters.status !== 'all') {
         const now = new Date();
@@ -1022,7 +1004,7 @@ const QuizList = () => {
                             Years:{' '}
                           </Typography>
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {quiz.allowedYears.map((year) => (
+                            {(quiz.allowedYears || []).map((year) => (
                               <Chip
                                 key={year}
                                 label={`Year ${year}`}
@@ -1039,7 +1021,7 @@ const QuizList = () => {
                             Sections:{' '}
                           </Typography>
                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                            {quiz.allowedSections.map((section) => (
+                            {(quiz.allowedSections || []).map((section) => (
                               <Chip
                                 key={section}
                                 label={`${section}`}

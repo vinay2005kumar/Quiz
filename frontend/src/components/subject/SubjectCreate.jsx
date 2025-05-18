@@ -14,7 +14,7 @@ import {
   Alert,
   Box
 } from '@mui/material';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const SubjectCreate = () => {
@@ -103,7 +103,7 @@ const SubjectCreate = () => {
         return;
       }
 
-      const response = await axios.post(
+      const response = await api.post(
         '/subject/generate-code',
         {
           department: formData.department,
@@ -114,9 +114,11 @@ const SubjectCreate = () => {
       );
       setFormData(prev => ({
         ...prev,
-        code: response.data.code
+        code: response.code
       }));
+      setError('');
     } catch (error) {
+      console.error('Error generating subject code:', error);
       setError('Failed to generate subject code');
     }
   };
@@ -126,7 +128,7 @@ const SubjectCreate = () => {
     setError('');
 
     try {
-      await axios.post('/subject', formData);
+      await api.post('/subject', formData);
       navigate('/subjects');
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to create subject');

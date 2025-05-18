@@ -12,24 +12,51 @@ const api = axios.create({
 // Add request interceptor for authentication
 api.interceptors.request.use(
   (config) => {
+    // Add auth token if available
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Ensure URL starts with /api
+    if (!config.url.startsWith('/api/') && !config.url.startsWith('http')) {
+      config.url = `/api${config.url.startsWith('/') ? '' : '/'}${config.url}`;
+    }
+
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    return Promise.reject(error);
+  }
 );
 
-// Response interceptor for handling auth errors
+// Response interceptor for handling common responses
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response.data;
+  },
   (error) => {
-    if (error.response?.status === 401 && !error.config.url.includes('/auth/login')) {
+    // Handle network errors
+    if (!error.response) {
+      console.error('Network error:', error);
+      return Promise.reject(new Error('Network error. Please check your connection.'));
+    }
+
+    // Handle unauthorized errors
+    if (error.response.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/login';
+      return Promise.reject(new Error('Session expired. Please login again.'));
     }
-    return Promise.reject(error);
+
+    // Handle other errors
+    const errorMessage = error.response.data?.message || error.message || 'An error occurred';
+    console.error('API Error:', {
+      status: error.response.status,
+      message: errorMessage,
+      url: error.config.url
+    });
+    return Promise.reject(new Error(errorMessage));
   }
 );
 

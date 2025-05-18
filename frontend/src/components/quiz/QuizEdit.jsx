@@ -46,7 +46,14 @@ const QuizEdit = () => {
     duration: 30,
     startTime: '',
     endTime: '',
-    questions: [],
+    questions: [
+      {
+        question: '',
+        options: ['', '', '', ''],
+        correctAnswer: 0,
+        marks: 1
+      }
+    ],
     allowedYears: [],
     allowedDepartments: [],
     allowedSections: []
@@ -60,11 +67,37 @@ const QuizEdit = () => {
     try {
       const response = await axios.get(`/quiz/${id}`);
       
-      // Format dates for input fields
+      // Helper function to safely format date
+      const formatDate = (dateString) => {
+        try {
+          const date = new Date(dateString);
+          // Check if date is valid
+          if (isNaN(date.getTime())) {
+            return '';
+          }
+          return date.toISOString().slice(0, 16);
+        } catch (error) {
+          console.error('Error formatting date:', error);
+          return '';
+        }
+      };
+      
+      // Format dates for input fields with validation
       const formattedQuiz = {
         ...response.data,
-        startTime: new Date(response.data.startTime).toISOString().slice(0, 16),
-        endTime: new Date(response.data.endTime).toISOString().slice(0, 16)
+        startTime: formatDate(response.data.startTime),
+        endTime: formatDate(response.data.endTime),
+        // Ensure questions array exists with at least one default question
+        questions: response.data.questions?.length ? response.data.questions : [{
+          question: '',
+          options: ['', '', '', ''],
+          correctAnswer: 0,
+          marks: 1
+        }],
+        // Ensure other arrays exist
+        allowedYears: response.data.allowedYears || [],
+        allowedDepartments: response.data.allowedDepartments || [],
+        allowedSections: response.data.allowedSections || []
       };
       
       setQuiz(formattedQuiz);
@@ -333,7 +366,7 @@ const QuizEdit = () => {
           </Button>
         </Box>
 
-        {quiz.questions.map((question, questionIndex) => (
+        {(quiz.questions || []).map((question, questionIndex) => (
           <Card key={questionIndex} sx={{ mb: 3, position: 'relative' }}>
             <CardContent>
               <Grid container spacing={2}>
