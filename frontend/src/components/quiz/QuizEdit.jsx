@@ -28,7 +28,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const SECTIONS = ['A', 'B', 'C', 'D', 'E'];
@@ -65,17 +65,23 @@ const QuizEdit = () => {
 
   const fetchQuiz = async () => {
     try {
-      const response = await axios.get(`/quiz/${id}`);
+      console.log('Fetching quiz with ID:', id);
+      const response = await api.get(`/quiz/${id}`);
+      console.log('Quiz data received:', response);
       
       // Helper function to safely format date
       const formatDate = (dateString) => {
         try {
+          console.log('Formatting date:', dateString);
           const date = new Date(dateString);
           // Check if date is valid
           if (isNaN(date.getTime())) {
+            console.warn('Invalid date:', dateString);
             return '';
           }
-          return date.toISOString().slice(0, 16);
+          const formatted = date.toISOString().slice(0, 16);
+          console.log('Formatted date:', formatted);
+          return formatted;
         } catch (error) {
           console.error('Error formatting date:', error);
           return '';
@@ -84,22 +90,23 @@ const QuizEdit = () => {
       
       // Format dates for input fields with validation
       const formattedQuiz = {
-        ...response.data,
-        startTime: formatDate(response.data.startTime),
-        endTime: formatDate(response.data.endTime),
+        ...response,  // The api instance already returns the data property
+        startTime: formatDate(response.startTime),
+        endTime: formatDate(response.endTime),
         // Ensure questions array exists with at least one default question
-        questions: response.data.questions?.length ? response.data.questions : [{
+        questions: response.questions?.length ? response.questions : [{
           question: '',
           options: ['', '', '', ''],
           correctAnswer: 0,
           marks: 1
         }],
         // Ensure other arrays exist
-        allowedYears: response.data.allowedYears || [],
-        allowedDepartments: response.data.allowedDepartments || [],
-        allowedSections: response.data.allowedSections || []
+        allowedYears: response.allowedYears || [],
+        allowedDepartments: response.allowedDepartments || [],
+        allowedSections: response.allowedSections || []
       };
       
+      console.log('Formatted quiz data:', formattedQuiz);
       setQuiz(formattedQuiz);
       setLoading(false);
     } catch (error) {
@@ -178,6 +185,7 @@ const QuizEdit = () => {
   const handleSubmit = async () => {
     try {
       setError('');
+      console.log('Submitting quiz update:', quiz);
 
       // Validate quiz data
       if (!quiz.title.trim()) {
@@ -236,7 +244,10 @@ const QuizEdit = () => {
         }
       }
 
-      const response = await axios.put(`/quiz/${id}`, updatedQuiz);
+      console.log('Sending update request with data:', updatedQuiz);
+      const response = await api.put(`/quiz/${id}`, updatedQuiz);
+      console.log('Update response:', response);
+      
       setSuccess('Quiz updated successfully');
       setTimeout(() => navigate('/quizzes'), 1500);
     } catch (error) {

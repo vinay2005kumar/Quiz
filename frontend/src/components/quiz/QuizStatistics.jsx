@@ -18,7 +18,7 @@ import {
   IconButton,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import axios from 'axios';
+import api from '../../config/axios';
 
 const QuizStatistics = () => {
   const { quizId } = useParams();
@@ -56,19 +56,19 @@ const QuizStatistics = () => {
       setError('');
       
       // Fetch quiz details
-      const quizResponse = await axios.get(`/api/quiz/${quizId}/details`);
-      setQuizData(quizResponse.data);
+      const quizResponse = await api.get(`/quiz/${quizId}/details`);
+      setQuizData(quizResponse);
 
       // Fetch quiz submissions
-      const submissionsResponse = await axios.get(`/api/quiz/${quizId}/submissions`);
-      const submissionsData = submissionsResponse.data.submissions || [];
+      const submissionsResponse = await api.get(`/quiz/${quizId}/submissions`);
+      const submissionsData = submissionsResponse.submissions || [];
       setSubmissions(submissionsData);
 
       // Calculate statistics
-      if (quizResponse.data && submissionsData.length > 0) {
+      if (quizResponse && submissionsData.length > 0) {
         const totalSubmissions = submissionsData.length;
         const scores = submissionsData.map(sub => {
-          const totalQuizMarks = quizResponse.data.totalMarks || quizResponse.data.questions.reduce((sum, q) => sum + q.marks, 0);
+          const totalQuizMarks = quizResponse.totalMarks || quizResponse.questions.reduce((sum, q) => sum + q.marks, 0);
           return (sub.totalMarks / totalQuizMarks) * 100;
         }).filter(score => !isNaN(score));
         
@@ -77,7 +77,7 @@ const QuizStatistics = () => {
           averageScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
           highestScore: scores.length > 0 ? Math.max(...scores) : 0,
           lowestScore: scores.length > 0 ? Math.min(...scores) : 0,
-          submissionRate: (totalSubmissions / (quizResponse.data.totalAuthorizedStudents || 1)) * 100,
+          submissionRate: (totalSubmissions / (quizResponse.totalAuthorizedStudents || 1)) * 100,
           scoreDistribution: {
             excellent: scores.filter(score => score >= 90).length,
             good: scores.filter(score => score >= 70 && score < 90).length,
@@ -90,7 +90,7 @@ const QuizStatistics = () => {
       }
     } catch (error) {
       console.error('Error fetching quiz statistics:', error);
-      setError(error.response?.data?.message || 'Failed to fetch quiz statistics. Please try again.');
+      setError(error.message || 'Failed to fetch quiz statistics. Please try again.');
     } finally {
       setLoading(false);
     }

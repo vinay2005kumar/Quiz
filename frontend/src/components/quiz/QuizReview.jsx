@@ -15,7 +15,7 @@ import {
   FormControl,
   Chip
 } from '@mui/material';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const QuizReview = () => {
@@ -28,57 +28,95 @@ const QuizReview = () => {
   const [submission, setSubmission] = useState(null);
 
   useEffect(() => {
-    fetchQuizReview();
-  }, [id, studentId]);
+    let isMounted = true;
 
-  const fetchQuizReview = async () => {
-    try {
-      let submissionResponse;
-      
-      if (user.role === 'faculty' && studentId) {
-        // Faculty viewing student submission
-        submissionResponse = await axios.get(`/quiz/${id}/submissions/${studentId}`);
-      } else {
-        // Student viewing their own submission
-        submissionResponse = await axios.get(`/quiz/${id}/submission`);
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        
+        // First fetch quiz details
+        const quizResponse = await api.get(`/quiz/${id}`);
+        console.log('Quiz response:', quizResponse);
+        
+        if (!quizResponse || !quizResponse.title) {
+          throw new Error('Failed to load quiz data');
+        }
+
+        if (!isMounted) return;
+
+        // Then fetch submission details
+        let submissionResponse;
+        try {
+          if (user.role === 'faculty' && studentId) {
+            submissionResponse = await api.get(`/quiz/${id}/submissions/${studentId}`);
+          } else {
+            submissionResponse = await api.get(`/quiz/${id}/submission`);
+          }
+          console.log('Submission response:', submissionResponse);
+
+          if (!submissionResponse) {
+            throw new Error('No submission found');
+          }
+
+          if (submissionResponse.status === 'started') {
+            navigate(`/quizzes/${id}`);
+            return;
+          }
+
+          if (isMounted) {
+            setQuizData(quizResponse);
+            setSubmission(submissionResponse);
+          }
+        } catch (err) {
+          console.error('Error fetching submission:', err);
+          throw new Error('Failed to load submission data');
+        }
+      } catch (error) {
+        console.error('Quiz review error:', error);
+        if (isMounted) {
+          const errorMessage = error.response?.data?.message || error.message || 'Failed to load quiz review';
+          setError(errorMessage);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
+    };
 
-      if (!submissionResponse.data) {
-        setError('No submission found for this quiz');
-        setLoading(false);
-        return;
-      }
+    fetchData();
 
-      if (submissionResponse.data.status === 'started') {
-        navigate(`/quizzes/${id}`);
-        return;
-      }
+    return () => {
+      isMounted = false;
+    };
+  }, [id, studentId, user.role, navigate]);
 
-      // For faculty view, we need to set quiz data from the submission response
-      if (user.role === 'faculty' && studentId) {
-        setQuizData({
-          title: submissionResponse.data.quiz.title,
-          subject: { name: 'N/A' }, // Add default value
-          totalMarks: submissionResponse.data.quiz.totalMarks,
-          questions: submissionResponse.data.quiz.questions
-        });
-      } else {
-        // For student view, fetch quiz details separately
-        const quizResponse = await axios.get(`/quiz/${id}`);
-        setQuizData(quizResponse.data);
-      }
+  // Add debug logging
+  useEffect(() => {
+    console.log('QuizReview rendered with:', {
+      quizData,
+      submission,
+      loading,
+      error
+    });
+  }, [quizData, submission, loading, error]);
 
-      setSubmission(submissionResponse.data);
-      setLoading(false);
-    } catch (error) {
-      console.error('Quiz review error:', error);
-      const errorMessage = error.response?.data?.message || 'Failed to load quiz review';
-      setError(errorMessage);
-      setLoading(false);
+  const getAnswerStatus = (question, selectedOption) => {
+    if (!submission?.answers) {
+      console.log('No answers in submission');
+      return 'not-answered';
     }
+    const answer = submission.answers.find(a => a.questionId === question._id);
+    if (!answer) {
+      console.log(`No answer found for question ${question._id}`);
+      return 'not-answered';
+    }
+    return answer.isCorrect ? 'correct' : 'incorrect';
   };
 
   if (loading) {
+    console.log('Rendering loading state');
     return (
       <Container sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
@@ -87,6 +125,7 @@ const QuizReview = () => {
   }
 
   if (error) {
+    console.log('Rendering error state:', error);
     return (
       <Container sx={{ mt: 4 }}>
         <Alert severity="error">{error}</Alert>
@@ -94,41 +133,49 @@ const QuizReview = () => {
     );
   }
 
-  const getAnswerStatus = (question, selectedOption) => {
-    const answer = submission.answers.find(a => a.questionId === question._id);
-    if (!answer) return 'not-answered';
-    return answer.isCorrect ? 'correct' : 'incorrect';
-  };
+  if (!quizData || !submission) {
+    console.log('Missing data:', { quizData, submission });
+    return (
+      <Container sx={{ mt: 4 }}>
+        <Alert severity="warning">No quiz data or submission found.</Alert>
+      </Container>
+    );
+  }
+
+  console.log('Rendering quiz review with:', {
+    questions: quizData?.questions?.length,
+    answers: submission?.answers?.length
+  });
 
   return (
     <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ mb: 3 }}>
           <Typography variant="h4" gutterBottom>
-            Quiz Review: {quizData.title}
+            Quiz Review: {quizData?.title || 'N/A'}
           </Typography>
           <Typography variant="h5" color="primary" gutterBottom>
-            Score: {submission.totalMarks} / {quizData.totalMarks}
+            Score: {submission?.totalMarks || 0} / {quizData?.totalMarks || 0}
           </Typography>
           <Typography variant="body1" gutterBottom>
-            Subject: {quizData.subject.name}
+            Subject: {quizData?.subject?.name || 'N/A'}
           </Typography>
           <Typography variant="body1" gutterBottom>
-            Started: {new Date(submission.startTime).toLocaleString()}
+            Started: {submission?.startTime ? new Date(submission.startTime).toLocaleString() : 'N/A'}
           </Typography>
           <Typography variant="body1" gutterBottom>
-            Submitted: {new Date(submission.submitTime).toLocaleString()}
+            Submitted: {submission?.submitTime ? new Date(submission.submitTime).toLocaleString() : 'N/A'}
           </Typography>
           <Typography variant="body1" gutterBottom>
-            Duration: {submission.duration ? `${submission.duration} minutes` : 'N/A'}
+            Duration: {submission?.duration ? `${submission.duration} minutes` : 'N/A'}
           </Typography>
           <Typography variant="body1" gutterBottom>
             Status: <Chip 
-              label={submission.status} 
+              label={submission?.status || 'N/A'} 
               color={
-                submission.status === 'evaluated' ? 'success' :
-                submission.status === 'started' ? 'warning' :
-                submission.status === 'submitted' ? 'primary' : 'default'
+                submission?.status === 'evaluated' ? 'success' :
+                submission?.status === 'started' ? 'warning' :
+                submission?.status === 'submitted' ? 'primary' : 'default'
               }
               size="small"
             />
@@ -136,19 +183,19 @@ const QuizReview = () => {
           {user.role === 'faculty' && (
             <>
               <Typography variant="body1" gutterBottom>
-                Student Name: {submission.student?.name}
+                Student Name: {submission?.student?.name || 'N/A'}
               </Typography>
               <Typography variant="body1" gutterBottom>
-                Admission Number: {submission.student?.admissionNumber}
+                Admission Number: {submission?.student?.admissionNumber || 'N/A'}
               </Typography>
               <Typography variant="body1" gutterBottom>
-                Department: {submission.student?.department}
+                Department: {submission?.student?.department || 'N/A'}
               </Typography>
               <Typography variant="body1" gutterBottom>
-                Year: {submission.student?.year}
+                Year: {submission?.student?.year || 'N/A'}
               </Typography>
               <Typography variant="body1" gutterBottom>
-                Section: {submission.student?.section}
+                Section: {submission?.student?.section || 'N/A'}
               </Typography>
             </>
           )}
@@ -156,8 +203,8 @@ const QuizReview = () => {
 
         <Divider sx={{ mb: 3 }} />
 
-        {quizData.questions.map((question, index) => {
-          const userAnswer = submission.answers.find(a => a.questionId === question._id);
+        {(quizData?.questions || []).map((question, index) => {
+          const userAnswer = submission?.answers?.find(a => a.questionId === question._id);
           const answerStatus = getAnswerStatus(question, userAnswer?.selectedOption);
 
           return (
@@ -176,12 +223,12 @@ const QuizReview = () => {
                 {index + 1}. {question.question}
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Marks: {userAnswer?.marks || 0} / {question.marks}
+                Marks: {userAnswer?.marks || 0} / {question.marks || 0}
               </Typography>
 
               <FormControl component="fieldset" fullWidth>
                 <RadioGroup value={userAnswer?.selectedOption?.toString() || ''}>
-                  {question.options.map((option, optionIndex) => {
+                  {(question.options || []).map((option, optionIndex) => {
                     const isCorrectAnswer = optionIndex === question.correctAnswer;
                     const isUserAnswer = optionIndex === userAnswer?.selectedOption;
                     
@@ -194,7 +241,7 @@ const QuizReview = () => {
                           <Typography
                             sx={{
                               color: isCorrectAnswer ? 'success.main' : 
-                                     isUserAnswer && !userAnswer.isCorrect ? 'error.main' : 
+                                     isUserAnswer && !userAnswer?.isCorrect ? 'error.main' : 
                                      'text.primary',
                               '& span': {
                                 ml: 1,

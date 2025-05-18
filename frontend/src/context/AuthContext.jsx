@@ -16,7 +16,7 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = useCallback(async () => {
     try {
-      const response = await api.get('/auth/me');
+      const response = await api.get('/api/auth/me');
       if (response?.user) {
         setUser(response.user);
       }
@@ -48,17 +48,11 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setAuthError(null);
-      const response = await api.post('/auth/login', { 
+      const response = await api.post('/api/auth/login', { 
         email, 
         password 
-      }, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
       });
       
-      // The response is already the data due to axios interceptor
       if (!response?.token || !response?.user) {
         throw new Error('Invalid response from server');
       }
@@ -78,14 +72,8 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       setAuthError(null);
-      const response = await api.post('/auth/register', userData, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
+      const response = await api.post('/api/auth/register', userData);
       
-      // The response is already the data due to axios interceptor
       if (!response?.token || !response?.user) {
         throw new Error('Invalid response from server');
       }

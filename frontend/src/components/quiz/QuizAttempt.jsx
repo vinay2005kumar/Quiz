@@ -18,7 +18,7 @@ import {
   DialogActions,
   LinearProgress
 } from '@mui/material';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const QuizAttempt = () => {
@@ -36,8 +36,80 @@ const QuizAttempt = () => {
   const [submissionResult, setSubmissionResult] = useState(null);
 
   useEffect(() => {
+    let isMounted = true;
+    
+    const fetchQuiz = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // First fetch quiz details
+        const quizResponse = await api.get(`/quiz/${id}`);
+        if (!isMounted) return;
+        
+        if (!quizResponse || !quizResponse.title) {
+          throw new Error('Invalid quiz data received');
+        }
+        
+        setQuiz(quizResponse);
+
+        // Check for existing submission first
+        try {
+          const existingSubmission = await api.get(`/quiz/${id}/submission`);
+          if (!isMounted) return;
+
+          if (existingSubmission.status === 'started') {
+            // Resume the ongoing attempt
+            setSubmission(existingSubmission);
+            const endTime = new Date(existingSubmission.startTime).getTime() + quizResponse.duration * 60000;
+            const now = new Date().getTime();
+            const remainingTime = Math.max(0, Math.floor((endTime - now) / 1000));
+            setTimeLeft(remainingTime);
+          } else {
+            // If submission is completed or evaluated, redirect to review
+            navigate(`/quizzes/${id}/review`);
+            return;
+          }
+        } catch (submissionError) {
+          // No existing submission found, try to start new attempt
+          try {
+            const newSubmission = await api.post(`/quiz/${id}/start`);
+            if (!isMounted) return;
+            
+            setSubmission(newSubmission);
+            setTimeLeft(quizResponse.duration * 60);
+          } catch (startError) {
+            if (startError.response?.data?.message === 'Quiz already attempted') {
+              navigate(`/quizzes/${id}/review`);
+              return;
+            }
+            throw startError;
+          }
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        if (!isMounted) return;
+        
+        console.error('Error in quiz flow:', error);
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to load quiz';
+        setError(errorMessage);
+        
+        if (errorMessage === 'Quiz already attempted') {
+          navigate(`/quizzes/${id}/review`);
+          return;
+        }
+        
+        setLoading(false);
+      }
+    };
+
     fetchQuiz();
-  }, [id]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [id, navigate]);
 
   useEffect(() => {
     if (submission?.startTime && quiz?.duration) {
@@ -58,47 +130,6 @@ const QuizAttempt = () => {
     }
   }, [submission, quiz]);
 
-  const fetchQuiz = async () => {
-    try {
-      // First fetch quiz details
-      const quizResponse = await axios.get(`/quiz/${id}`);
-      setQuiz(quizResponse.data);
-
-      // Check for existing submission
-      try {
-        const existingSubmission = await axios.get(`/quiz/${id}/submission`);
-        
-        if (existingSubmission.data) {
-          // If there's a completed submission, redirect to review
-          if (existingSubmission.data.status === 'evaluated') {
-            navigate(`/quizzes/${id}/review`);
-            return;
-          }
-          // If there's an ongoing submission, use that
-          setSubmission(existingSubmission.data);
-          setLoading(false);
-          return;
-        }
-      } catch (err) {
-        // No existing submission found, continue with starting new attempt
-      }
-
-      // Start new quiz attempt
-      const submissionResponse = await axios.post(`/quiz/${id}/start`);
-      
-      setSubmission(submissionResponse.data);
-      setLoading(false);
-    } catch (error) {
-      console.error('Quiz error:', error.response?.data);
-      if (error.response?.data?.message === 'Quiz already attempted') {
-        navigate(`/quizzes/${id}/review`);
-      } else {
-        setError(error.response?.data?.message || 'Failed to load quiz');
-      }
-      setLoading(false);
-    }
-  };
-
   const handleAnswerChange = (questionId, value) => {
     setAnswers(prev => ({
       ...prev,
@@ -115,9 +146,9 @@ const QuizAttempt = () => {
         }))
       };
 
-      const response = await axios.post(`/quiz/${id}/submit`, submissionData);
+      const response = await api.post(`/quiz/${id}/submit`, submissionData);
 
-      setSubmissionResult(response.data);
+      setSubmissionResult(response);
       setShowScoreSummary(true);
       setShowConfirmSubmit(false);
     } catch (error) {
@@ -171,10 +202,10 @@ const QuizAttempt = () => {
 
         <Box sx={{ mb: 3 }}>
           <Typography variant="body1" gutterBottom>
-            Subject: {quiz.subject.name}
+            Subject: {quiz?.subject?.name || 'N/A'}
           </Typography>
           <Typography variant="body1" gutterBottom>
-            Total Marks: {quiz.totalMarks}
+            Total Marks: {quiz?.totalMarks || 0}
           </Typography>
         </Box>
 

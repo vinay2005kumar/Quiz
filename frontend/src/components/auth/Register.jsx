@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import ErrorBoundary from '../common/ErrorBoundary';
+import api from '../../config/axios';
 
 // Shared styles for Select components
 const selectStyles = {
@@ -50,6 +51,7 @@ const Register = () => {
   });
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
+  const [currentRange, setCurrentRange] = useState(null);
   const { register } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
@@ -77,6 +79,28 @@ const Register = () => {
     }
   }, [formData.role]);
 
+  // Fetch admission ranges when department, year, or section changes
+  useEffect(() => {
+    const fetchAdmissionRanges = async () => {
+      if (formData.role === 'student' && formData.department && formData.year && formData.section) {
+        try {
+          const range = await api.get(`/api/auth/admission-ranges?department=${formData.department}&year=${formData.year}&section=${formData.section}`);
+          if (range) {
+            setCurrentRange(range);
+          } else {
+            setCurrentRange(null);
+          }
+        } catch (error) {
+          console.error('Error fetching admission ranges:', error);
+          setCurrentRange(null);
+        }
+      } else {
+        setCurrentRange(null);
+      }
+    };
+    fetchAdmissionRanges();
+  }, [formData.department, formData.year, formData.section, formData.role]);
+
   const validateField = (name, value) => {
     switch (name) {
       case 'name':
@@ -87,7 +111,20 @@ const Register = () => {
         return value.length < 6 ? 'Password must be at least 6 characters' : '';
       case 'admissionNumber':
         if (formData.role === 'student') {
-          return !/^[yl]\d{2}[a-z]{2}\d{3}$/i.test(value) ? 'Invalid admission number format' : '';
+          if (!/^[yl]\d{2}[a-z]{2}\d{3}$/i.test(value)) {
+            return 'Invalid admission number format';
+          }
+          if (currentRange) {
+            const isRegular = value.startsWith('y');
+            const entry = isRegular ? currentRange.regularEntry : currentRange.lateralEntry;
+            const num = parseInt(value.slice(-3));
+            const startNum = parseInt(entry.start.slice(-3));
+            const endNum = parseInt(entry.end.slice(-3));
+            
+            if (num < startNum || num > endNum) {
+              return `Admission number must be between ${entry.start} and ${entry.end}`;
+            }
+          }
         }
         return '';
       case 'department':
@@ -311,7 +348,26 @@ const Register = () => {
                         </Select>
                       </FormControl>
                     </Grid>
-                    <Grid item xs={12} sm={4}>
+                    {currentRange && (
+                      <Grid item xs={12}>
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          <Typography variant="subtitle1" gutterBottom>
+                            Available Admission Number Ranges:
+                          </Typography>
+                          <Typography variant="body2" component="div">
+                            <strong>Regular Entry:</strong>
+                            <br />
+                            {currentRange.regularEntry.start} to {currentRange.regularEntry.end}
+                          </Typography>
+                          <Typography variant="body2" component="div" sx={{ mt: 1 }}>
+                            <strong>Lateral Entry:</strong>
+                            <br />
+                            {currentRange.lateralEntry.start} to {currentRange.lateralEntry.end}
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    )}
+                    <Grid item xs={12}>
                       <TextField
                         required
                         fullWidth
@@ -320,7 +376,9 @@ const Register = () => {
                         value={formData.admissionNumber}
                         onChange={handleChange}
                         error={!!errors.admissionNumber}
-                        helperText={errors.admissionNumber || 'Format: y22cs021 or l22cs021'}
+                        helperText={errors.admissionNumber || (currentRange ? 
+                          `Enter your admission number from the ranges shown above` : 
+                          'Format: y22cs021 (for regular) or l22cs021 (for lateral)')}
                         disabled={isLoading}
                       />
                     </Grid>

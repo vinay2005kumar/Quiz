@@ -25,7 +25,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import InfoIcon from '@mui/icons-material/Info';
 import AssessmentIcon from '@mui/icons-material/Assessment';
-import axios from 'axios';
+import api from '../../config/axios';
 
 const QuizOverview = () => {
   const navigate = useNavigate();
@@ -40,6 +40,7 @@ const QuizOverview = () => {
 
   const [quizzes, setQuizzes] = useState([]);
   const [statistics, setStatistics] = useState(null);
+  const [subjects, setSubjects] = useState([]);
 
   useEffect(() => {
     fetchQuizzes();
@@ -48,6 +49,8 @@ const QuizOverview = () => {
   const fetchQuizzes = async () => {
     try {
       setLoading(true);
+      setError('');
+      
       // Only include non-"all" filters in the request
       const queryParams = {};
       Object.entries(filters).forEach(([key, value]) => {
@@ -56,15 +59,36 @@ const QuizOverview = () => {
         }
       });
       
-      const response = await axios.get('/quiz/statistics', { params: queryParams });
-      setStatistics(response.data);
-      
-      // Get quizzes from the backend
-      const quizzesResponse = await axios.get('/quiz', { params: queryParams });
-      setQuizzes(quizzesResponse.data || []);
+      // Fetch statistics and quizzes in parallel
+      const [statsResponse, quizzesResponse] = await Promise.all([
+        api.get('/quiz/statistics', { params: queryParams }),
+        api.get('/quiz', { params: queryParams })
+      ]);
+
+      // Ensure we have valid responses
+      if (statsResponse) {
+        setStatistics(statsResponse);
+      }
+
+      if (Array.isArray(quizzesResponse)) {
+        setQuizzes(quizzesResponse);
+        
+        // Extract unique subjects from quizzes
+        const uniqueSubjects = quizzesResponse
+          .map(quiz => quiz.subject)
+          .filter((subject, index, self) => 
+            subject && index === self.findIndex(s => s?._id === subject?._id)
+          );
+        setSubjects(uniqueSubjects);
+      } else {
+        setQuizzes([]);
+        setSubjects([]);
+      }
     } catch (error) {
       console.error('Error fetching quizzes:', error);
       setError(error.response?.data?.message || 'Failed to fetch quizzes');
+      setQuizzes([]);
+      setSubjects([]);
     } finally {
       setLoading(false);
     }
@@ -177,17 +201,11 @@ const QuizOverview = () => {
                 label="Subject"
               >
                 <MenuItem value="all">All Subjects</MenuItem>
-                {quizzes
-                  .map(quiz => quiz.subject)
-                  .filter((subject, index, self) => 
-                    subject && index === self.findIndex(s => s._id === subject._id)
-                  )
-                  .map(subject => (
-                    <MenuItem key={subject._id} value={subject._id}>
-                      {subject.name}
-                    </MenuItem>
-                  ))
-                }
+                {subjects.map(subject => (
+                  <MenuItem key={subject._id} value={subject._id}>
+                    {subject.name}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Grid>
@@ -198,27 +216,44 @@ const QuizOverview = () => {
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md={3}>
               <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="h6">Total Quizzes</Typography>
-                <Typography variant="h4">{statistics.totalQuizzes}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="h6">Active Quizzes</Typography>
-                <Typography variant="h4">{statistics.activeQuizzes}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="h6">Average Score</Typography>
-                <Typography variant="h4">{formatPercentage(statistics.averageScore)}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Paper sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant="h6">Submission Rate</Typography>
+                <Typography variant="h6" gutterBottom>
+                  Total Quizzes
+                </Typography>
                 <Typography variant="h4">
-                  {formatPercentage((statistics.totalSubmissions / statistics.totalStudents) * 100)}
+                  {statistics.totalQuizzes || 0}
+                </Typography>
+              </Paper>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <Typography variant="h6" gutterBottom>
+                  Total Students
+                </Typography>
+                <Typography variant="h4">
+                  {statistics.totalStudents || 0}
+                </Typography>
+              </Paper>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <Typography variant="h6" gutterBottom>
+                  Submission Rate
+                </Typography>
+                <Typography variant="h4">
+                  {formatPercentage((statistics.submittedCount / statistics.totalStudents) * 100)}
+                </Typography>
+              </Paper>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center' }}>
+                <Typography variant="h6" gutterBottom>
+                  Average Score
+                </Typography>
+                <Typography variant="h4">
+                  {formatPercentage(statistics.averageScore)}
                 </Typography>
               </Paper>
             </Grid>
@@ -243,19 +278,23 @@ const QuizOverview = () => {
               </TableHead>
               <TableBody>
                 {quizzes.map((quiz) => {
-                  const totalAuthorized = (quiz.allowedYears?.length || 0) * 
-                    (quiz.allowedDepartments?.length || 0) * 
-                    (quiz.allowedSections?.length || 0) * 60; // Assuming 60 students per section
+                  // Extract unique departments, years, and sections from allowedGroups
+                  const departments = Array.from(new Set(quiz.allowedGroups?.map(group => group.department) || []));
+                  const years = Array.from(new Set(quiz.allowedGroups?.map(group => group.year) || []));
+                  const sections = Array.from(new Set(quiz.allowedGroups?.map(group => group.section) || []));
                   
-                  const submissionRate = (quiz.totalSubmissions / totalAuthorized) * 100;
+                  // Calculate total authorized students
+                  const totalAuthorized = (quiz.allowedGroups?.length || 0) * 60; // Assuming 60 students per group
+                  
+                  const submissionRate = quiz.totalSubmissions ? (quiz.totalSubmissions / totalAuthorized) * 100 : 0;
                   const nonSubmissionRate = 100 - submissionRate;
 
                   return (
                     <TableRow key={quiz._id}>
                       <TableCell>{quiz.title}</TableCell>
-                      <TableCell>{quiz.allowedDepartments.join(', ')}</TableCell>
-                      <TableCell>{quiz.allowedYears.join(', ')}</TableCell>
-                      <TableCell>{quiz.allowedSections.join(', ')}</TableCell>
+                      <TableCell>{departments.join(', ') || 'N/A'}</TableCell>
+                      <TableCell>{years.join(', ') || 'N/A'}</TableCell>
+                      <TableCell>{sections.join(', ') || 'N/A'}</TableCell>
                       <TableCell align="right">{formatPercentage(submissionRate)}</TableCell>
                       <TableCell align="right">{formatPercentage(nonSubmissionRate)}</TableCell>
                       <TableCell align="right">{formatPercentage(quiz.averageScore)}</TableCell>
@@ -273,6 +312,13 @@ const QuizOverview = () => {
                     </TableRow>
                   );
                 })}
+                {quizzes.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      No quizzes found
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>

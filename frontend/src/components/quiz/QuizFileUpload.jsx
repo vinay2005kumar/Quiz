@@ -20,14 +20,17 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
-  Divider
+  Divider,
+  Chip
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DownloadIcon from '@mui/icons-material/Download';
 import HelpIcon from '@mui/icons-material/Help';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
+
+const SECTIONS = ['A', 'B', 'C', 'D', 'E'];
 
 const QuizFileUpload = () => {
   const navigate = useNavigate();
@@ -46,7 +49,8 @@ const QuizFileUpload = () => {
     subject: '',
     duration: 30,
     startTime: '',
-    endTime: ''
+    endTime: '',
+    allowedSections: []
   });
 
   useEffect(() => {
@@ -55,11 +59,22 @@ const QuizFileUpload = () => {
 
   const fetchSubjects = async () => {
     try {
-      const response = await axios.get('/subject');
-      setSubjects(response.data);
+      setLoading(true);
+      console.log('Fetching subjects...');
+      const response = await api.get('/subject');
+      console.log('Subjects response:', response);
+      
+      // Ensure response is an array
+      const subjectsData = Array.isArray(response) ? response : [];
+      console.log('Processed subjects data:', subjectsData);
+      
+      setSubjects(subjectsData);
+      setLoading(false);
     } catch (error) {
-      setError('Failed to fetch subjects. Please try again later.');
       console.error('Error fetching subjects:', error);
+      setError('Failed to fetch subjects. Please try again later.');
+      setSubjects([]); // Set empty array on error
+      setLoading(false);
     }
   };
 
@@ -67,12 +82,14 @@ const QuizFileUpload = () => {
     const { name, value } = e.target;
     setQuizData(prev => ({
       ...prev,
-      [name]: value
+      [name]: name === 'allowedSections' ? Array.isArray(value) ? value : [value] : value
     }));
   };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
+    console.log('Selected file:', selectedFile);
+    
     if (selectedFile) {
       if (uploadType === 'excel') {
         const validTypes = [
@@ -82,6 +99,8 @@ const QuizFileUpload = () => {
         
         if (!validTypes.includes(selectedFile.type)) {
           setError('Please upload only Excel files (.xlsx or .xls)');
+          setFile(null);
+          e.target.value = ''; // Reset file input
           return;
         }
       } else {
@@ -89,16 +108,24 @@ const QuizFileUpload = () => {
         
         if (!validTypes.includes(selectedFile.type)) {
           setError('Please upload only image files (JPEG, PNG, or GIF)');
+          setFile(null);
+          e.target.value = ''; // Reset file input
           return;
         }
       }
 
       if (selectedFile.size > 5 * 1024 * 1024) {
         setError('File size should be less than 5MB');
+        setFile(null);
+        e.target.value = ''; // Reset file input
         return;
       }
 
+      console.log('File validation passed, setting file:', selectedFile);
       setFile(selectedFile);
+      setError('');
+    } else {
+      setFile(null);
       setError('');
     }
   };
@@ -109,6 +136,13 @@ const QuizFileUpload = () => {
     setError('');
 
     try {
+      // Add validation for sections
+      if (!quizData.allowedSections || quizData.allowedSections.length === 0) {
+        setError('Please select at least one section');
+        setLoading(false);
+        return;
+      }
+
       // Validate file
       if (!file) {
         setError('Please select a file');
@@ -157,13 +191,37 @@ const QuizFileUpload = () => {
       formData.append('duration', String(quizData.duration));
       formData.append('startTime', startTime.toISOString());
       formData.append('endTime', endTime.toISOString());
-      formData.append('allowedYears', JSON.stringify([1, 2, 3, 4]));
-      formData.append('allowedDepartments', JSON.stringify(['Computer Science']));
+
+      // Create allowedGroups array with selected sections only
+      const allowedGroups = [1, 2, 3, 4].flatMap(year =>
+        ['Computer Science'].flatMap(department =>
+          quizData.allowedSections.map(section => ({
+            year,
+            department,
+            section
+          }))
+        )
+      );
+
+      formData.append('allowedGroups', JSON.stringify(allowedGroups));
+
+      // Log FormData contents for debugging
+      console.log('File being uploaded:', file);
+      console.log('FormData contents:');
+      for (let [key, value] of formData.entries()) {
+        console.log(key, ':', value);
+      }
 
       const endpoint = uploadType === 'excel' ? '/quiz/upload/excel' : '/quiz/upload/image';
-      const response = await axios.post(endpoint, formData);
+      
+      // Make API request with proper headers
+      const response = await api.post(endpoint, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        }
+      });
 
-      console.log('Server response:', response.data);
+      console.log('Server response:', response);
       navigate('/quizzes');
     } catch (error) {
       console.error('Error creating quiz:', error);
@@ -318,6 +376,33 @@ const QuizFileUpload = () => {
                   onChange={handleInputChange}
                   InputLabelProps={{ shrink: true }}
                 />
+              </Grid>
+
+              <Grid item xs={12}>
+                <FormControl fullWidth required variant="outlined">
+                  <InputLabel id="allowed-sections-label">Sections</InputLabel>
+                  <Select
+                    labelId="allowed-sections-label"
+                    multiple
+                    name="allowedSections"
+                    value={quizData.allowedSections}
+                    onChange={handleInputChange}
+                    label="Sections"
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selected.map((value) => (
+                          <Chip key={value} label={`Section ${value}`} />
+                        ))}
+                      </Box>
+                    )}
+                  >
+                    {SECTIONS.map((section) => (
+                      <MenuItem key={section} value={section}>
+                        Section {section}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
 
               <Grid item xs={12}>

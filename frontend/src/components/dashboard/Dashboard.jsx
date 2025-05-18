@@ -64,11 +64,14 @@ const Dashboard = () => {
                 };
               })
               .catch((err) => {
-                console.error(`Error fetching submission for quiz ${quiz._id}:`, err);
+                if (err.response?.status !== 404) {
+                  console.error(`Error fetching submission for quiz ${quiz._id}:`, err);
+                }
                 return null;
               })
           );
-          submissions = (await Promise.all(submissionPromises)).filter(sub => sub !== null);
+          submissions = (await Promise.all(submissionPromises))
+            .filter(sub => sub !== null && sub.status === 'evaluated');
         }
 
         // Calculate statistics
@@ -81,7 +84,7 @@ const Dashboard = () => {
           ).length,
           completedQuizzes: submissions.length,
           averageScore: submissions.length > 0 
-            ? submissions.reduce((sum, sub) => sum + (sub.totalScore || 0), 0) / submissions.length
+            ? (submissions.reduce((sum, sub) => sum + (sub.totalScore || 0), 0) / submissions.length).toFixed(2)
             : 0,
           submissions: submissions.sort((a, b) => new Date(b.submitTime) - new Date(a.submitTime))
         };
@@ -170,39 +173,45 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-        {stats.submissions.length > 0 && (
+        {user?.role === 'student' && (
           <Grid item xs={12}>
             <Paper sx={{ p: 3, mt: 3 }}>
               <Typography variant="h6" gutterBottom>
                 Recent Submissions
               </Typography>
-              <Grid container spacing={2}>
-                {stats.submissions.slice(0, 3).map((submission) => (
-                  <Grid item xs={12} sm={4} key={submission.quizId}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="subtitle1" gutterBottom>
-                          {submission.quiz?.title || 'Quiz'}
-                        </Typography>
-                        <Typography variant="h6" color="primary">
-                          Score: {submission.totalScore || 0}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Submitted: {new Date(submission.submitTime).toLocaleString()}
-                        </Typography>
-                      </CardContent>
-                      <CardActions>
-                        <Button 
-                          size="small" 
-                          onClick={() => navigate(`/quizzes/${submission.quizId}/review`)}
-                        >
-                          View Details
-                        </Button>
-                      </CardActions>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
+              {stats.submissions.length > 0 ? (
+                <Grid container spacing={2}>
+                  {stats.submissions.slice(0, 3).map((submission) => (
+                    <Grid item xs={12} sm={4} key={submission.quizId}>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="subtitle1" gutterBottom>
+                            {submission.quiz?.title || 'Quiz'}
+                          </Typography>
+                          <Typography variant="h6" color="primary">
+                            Score: {submission.totalScore || 0}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Submitted: {new Date(submission.submitTime).toLocaleString()}
+                          </Typography>
+                        </CardContent>
+                        <CardActions>
+                          <Button 
+                            size="small" 
+                            onClick={() => navigate(`/quizzes/${submission.quizId}/review`)}
+                          >
+                            View Details
+                          </Button>
+                        </CardActions>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              ) : (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  You haven't completed any quizzes yet. Check the available quizzes section to get started!
+                </Alert>
+              )}
             </Paper>
           </Grid>
         )}

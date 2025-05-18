@@ -25,7 +25,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import axios from 'axios';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const QuizAuthorizedStudents = () => {
@@ -47,38 +47,59 @@ const QuizAuthorizedStudents = () => {
   });
 
   const [sortConfig, setSortConfig] = useState({
-    key: 'admissionNumber',
+    key: null,
     direction: 'asc'
   });
 
   useEffect(() => {
-    fetchAuthorizedStudents();
+    fetchData();
   }, [id]);
 
-  const fetchAuthorizedStudents = async () => {
+  const fetchData = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`/quiz/${id}/authorized-students`);
-      setQuiz(response.data.quiz);
-      setStudents(response.data.students);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching authorized students:', error);
+      setError('');
 
-      let errorMessage = 'Failed to load student data';
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        errorMessage = error.response.data.message ||
-          error.response.data.error ||
-          error.response.statusText;
-      } else if (error.request) {
-        // The request was made but no response was received
-        errorMessage = 'No response from server';
-      } else {
-        // Something happened in setting up the request
-        errorMessage = error.message;
+      // Fetch quiz details and submissions in parallel
+      const [quizResponse, submissionsResponse] = await Promise.all([
+        api.get(`/quiz/${id}`),
+        api.get(`/quiz/${id}/submissions`)
+      ]);
+
+      if (!quizResponse || !quizResponse.title) {
+        throw new Error('Failed to fetch quiz details');
       }
 
+      setQuiz(quizResponse);
+
+      if (!submissionsResponse || !submissionsResponse.submissions) {
+        throw new Error('Failed to fetch submissions');
+      }
+
+      // Transform submissions data to include all necessary details
+      const transformedStudents = submissionsResponse.submissions.map(submission => ({
+        student: {
+          _id: submission.student?._id,
+          name: submission.student?.name || 'N/A',
+          admissionNumber: submission.student?.admissionNumber || 'N/A',
+          department: submission.student?.department || 'N/A',
+          year: submission.student?.year || 'N/A',
+          section: submission.student?.section || 'N/A'
+        },
+        hasSubmitted: submission.status === 'evaluated',
+        submissionStatus: submission.status || 'not-submitted',
+        totalMarks: submission.totalMarks || 0,
+        duration: submission.duration || null,
+        startTime: submission.startTime || null,
+        submitTime: submission.submitTime || null,
+        answers: submission.answers || []
+      }));
+
+      setStudents(transformedStudents);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to load data';
       setError(errorMessage);
       setLoading(false);
     }
@@ -130,21 +151,23 @@ const QuizAuthorizedStudents = () => {
   };
 
   const filteredStudents = useMemo(() => {
+    if (!students || !Array.isArray(students)) return [];
+    
     return students.filter(student => {
+      if (!student || !student.student) return false;
+
       // Admission number filter
-      if (filters.admissionNumber &&
-        !student.student.admissionNumber.toLowerCase().includes(filters.admissionNumber.toLowerCase())) {
+      if (filters.admissionNumber && 
+          !student.student.admissionNumber.toLowerCase().includes(filters.admissionNumber.toLowerCase())) {
         return false;
       }
 
       // Score range filter
       if (filters.scoreRange !== 'all') {
-        const scorePercentage = calculateScorePercentage(student.totalMarks, quiz.totalMarks);
+        const scorePercentage = calculateScorePercentage(student.totalMarks, quiz?.totalMarks || 0);
         const [min, max] = filters.scoreRange.split('-').map(Number);
         
-        // If no submission, handle based on filter range
         if (!student.hasSubmitted) {
-          // Only include non-submitted students if filter includes 0
           return min === 0;
         }
         
@@ -156,8 +179,8 @@ const QuizAuthorizedStudents = () => {
         if (filters.submissionStatus === 'submitted' && !student.hasSubmitted) return false;
         if (filters.submissionStatus === 'not-submitted' && student.hasSubmitted) return false;
         if (filters.submissionStatus !== 'submitted' &&
-          filters.submissionStatus !== 'not-submitted' &&
-          student.submissionStatus !== filters.submissionStatus) {
+            filters.submissionStatus !== 'not-submitted' &&
+            student.submissionStatus !== filters.submissionStatus) {
           return false;
         }
       }
@@ -182,41 +205,49 @@ const QuizAuthorizedStudents = () => {
   }, [students, filters, quiz]);
 
   const sortedStudents = useMemo(() => {
+    if (!filteredStudents || !Array.isArray(filteredStudents)) return [];
+    
     const sortableStudents = [...filteredStudents];
-    if (sortConfig.key) {
-      sortableStudents.sort((a, b) => {
-        // Handle different sort keys
-        if (sortConfig.key === 'admissionNumber') {
+    if (!sortConfig.key) return sortableStudents;
+
+    return sortableStudents.sort((a, b) => {
+      if (!a || !b || !a.student || !b.student) return 0;
+
+      switch (sortConfig.key) {
+        case 'admissionNumber':
           return sortConfig.direction === 'asc'
             ? a.student.admissionNumber.localeCompare(b.student.admissionNumber)
             : b.student.admissionNumber.localeCompare(a.student.admissionNumber);
-        } else if (sortConfig.key === 'score') {
-          // Handle cases where score might be undefined
+        
+        case 'score':
           if (!a.hasSubmitted && !b.hasSubmitted) return 0;
           if (!a.hasSubmitted) return sortConfig.direction === 'asc' ? -1 : 1;
           if (!b.hasSubmitted) return sortConfig.direction === 'asc' ? 1 : -1;
           
-          const scorePercentageA = calculateScorePercentage(a.totalMarks, quiz.totalMarks);
-          const scorePercentageB = calculateScorePercentage(b.totalMarks, quiz.totalMarks);
-          return sortConfig.direction === 'asc' ? scorePercentageA - scorePercentageB : scorePercentageB - scorePercentageA;
-        } else if (sortConfig.key === 'submissionStatus') {
+          const scoreA = calculateScorePercentage(a.totalMarks, quiz?.totalMarks || 0);
+          const scoreB = calculateScorePercentage(b.totalMarks, quiz?.totalMarks || 0);
+          return sortConfig.direction === 'asc' ? scoreA - scoreB : scoreB - scoreA;
+        
+        case 'submissionStatus':
           return sortConfig.direction === 'asc'
-            ? a.submissionStatus.localeCompare(b.submissionStatus)
-            : b.submissionStatus.localeCompare(a.submissionStatus);
-        } else if (sortConfig.key === 'name') {
+            ? (a.submissionStatus || '').localeCompare(b.submissionStatus || '')
+            : (b.submissionStatus || '').localeCompare(a.submissionStatus || '');
+        
+        case 'name':
           return sortConfig.direction === 'asc'
             ? a.student.name.localeCompare(b.student.name)
             : b.student.name.localeCompare(a.student.name);
-        } else if (sortConfig.key === 'duration') {
-          if (!a.duration) return sortConfig.direction === 'asc' ? 1 : -1;
-          if (!b.duration) return sortConfig.direction === 'asc' ? -1 : 1;
-          
+        
+        case 'duration':
+          if (!a.duration && !b.duration) return 0;
+          if (!a.duration) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (!b.duration) return sortConfig.direction === 'asc' ? 1 : -1;
           return sortConfig.direction === 'asc' ? a.duration - b.duration : b.duration - a.duration;
-        }
-        return 0;
-      });
-    }
-    return sortableStudents;
+        
+        default:
+          return 0;
+      }
+    });
   }, [filteredStudents, sortConfig, quiz]);
 
   if (loading) {
@@ -248,159 +279,88 @@ const QuizAuthorizedStudents = () => {
           </Button>
 
           <Typography variant="h4" gutterBottom>
-            {quiz?.title} - Authorized Students
+            {quiz?.title} - Submissions
           </Typography>
 
-          <Box sx={{ mt: 2, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Typography variant="body2">
-              Department: {quiz?.allowedDepartments.join(', ')}
-            </Typography>
-            <Typography variant="body2">
-              Year: {quiz?.allowedYears.join(', ')}
-            </Typography>
-            <Typography variant="body2">
-              Section: {quiz?.allowedSections.join(', ')}
-            </Typography>
-            <Typography variant="body2">
-              Total Students: {students.length}
-            </Typography>
-            <Typography variant="body2">
-              Submitted: {students.filter(s => s.hasSubmitted).length}
-            </Typography>
-            <Typography variant="body2">
-              Not Submitted: {students.filter(s => !s.hasSubmitted).length}
-            </Typography>
-            <Typography variant="body2">
-              Average Duration: {
-                (() => {
-                  const submittedStudents = students.filter(s => s.duration);
-                  if (submittedStudents.length === 0) return 'N/A';
-                  const avgDuration = submittedStudents.reduce((sum, s) => sum + s.duration, 0) / submittedStudents.length;
-                  return formatDuration(Math.round(avgDuration));
-                })()
-              }
-            </Typography>
-          </Box>
-        </Box>
-        <Box sx={{ px: { xs: 2, sm: 0 }, mb: 3 }}>
-          <Paper sx={{ p: 2 }}>
-            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-              <FilterListIcon sx={{ mr: 1 }} />
-              <Typography variant="h6">Filters</Typography>
-            </Box>
-            <Grid container spacing={2}>
-              {/* Admission Number Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Admission Number"
-                  value={filters.admissionNumber}
-                  onChange={(e) => handleFilterChange('admissionNumber', e.target.value)}
-                />
-              </Grid>
-
-              {/* Score Range Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Score Range</InputLabel>
-                  <Select
-                    value={filters.scoreRange}
-                    onChange={(e) => handleFilterChange('scoreRange', e.target.value)}
-                    label="Score Range"
-                  >
-                    <MenuItem value="all">All Scores</MenuItem>
-                    <MenuItem value="0-50">0 - 50%</MenuItem>
-                    <MenuItem value="50-75">50 - 75%</MenuItem>
-                    <MenuItem value="75-90">75 - 90%</MenuItem>
-                    <MenuItem value="90-100">90 - 100%</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Submission Status Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Submission Status</InputLabel>
-                  <Select
-                    value={filters.submissionStatus}
-                    onChange={(e) => handleFilterChange('submissionStatus', e.target.value)}
-                    label="Submission Status"
-                  >
-                    <MenuItem value="all">All Statuses</MenuItem>
-                    <MenuItem value="submitted">Submitted</MenuItem>
-                    <MenuItem value="not-submitted">Not Submitted</MenuItem>
-                    <MenuItem value="evaluated">Evaluated</MenuItem>
-                    <MenuItem value="started">Started</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Department Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Department</InputLabel>
-                  <Select
-                    value={filters.department}
-                    onChange={(e) => handleFilterChange('department', e.target.value)}
-                    label="Department"
-                  >
-                    <MenuItem value="all">All Departments</MenuItem>
-                    {departments.map(dept => (
-                      <MenuItem key={dept} value={dept}>{dept}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Year Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Year</InputLabel>
-                  <Select
-                    value={filters.year}
-                    onChange={(e) => handleFilterChange('year', e.target.value)}
-                    label="Year"
-                  >
-                    <MenuItem value="all">All Years</MenuItem>
-                    {[1, 2, 3, 4].map(year => (
-                      <MenuItem key={year} value={year}>Year {year}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Section Filter */}
-              <Grid xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Section</InputLabel>
-                  <Select
-                    value={filters.section}
-                    onChange={(e) => handleFilterChange('section', e.target.value)}
-                    label="Section"
-                  >
-                    <MenuItem value="all">All Sections</MenuItem>
-                    {['A', 'B', 'C', 'D'].map(section => (
-                      <MenuItem key={section} value={section}>Section {section}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {/* Clear Filters Button */}
-              <Grid xs={12} sm={6} md={3}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  onClick={resetFilters}
-                  disabled={Object.values(filters).every(v => v === 'all' || v === '')}
-                >
-                  Clear Filters
-                </Button>
-              </Grid>
+          <Grid container spacing={2} sx={{ mt: 2 }}>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body1">
+                Total Students: {students.length}
+              </Typography>
             </Grid>
-          </Paper>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body1">
+                Submitted: {students.filter(s => s.hasSubmitted).length}
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body1">
+                Average Score: {
+                  students.length > 0 
+                    ? (students.reduce((acc, s) => acc + (s.totalMarks || 0), 0) / students.length).toFixed(2)
+                    : 0
+                }
+              </Typography>
+            </Grid>
+          </Grid>
         </Box>
+
+        {/* Filters */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Admission Number"
+              value={filters.admissionNumber}
+              onChange={(e) => handleFilterChange('admissionNumber', e.target.value)}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Score Range</InputLabel>
+              <Select
+                value={filters.scoreRange}
+                onChange={(e) => handleFilterChange('scoreRange', e.target.value)}
+                label="Score Range"
+              >
+                <MenuItem value="all">All Scores</MenuItem>
+                <MenuItem value="0-0">Not Submitted</MenuItem>
+                <MenuItem value="0-50">Below 50%</MenuItem>
+                <MenuItem value="50-70">50% - 70%</MenuItem>
+                <MenuItem value="70-90">70% - 90%</MenuItem>
+                <MenuItem value="90-100">Above 90%</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={filters.submissionStatus}
+                onChange={(e) => handleFilterChange('submissionStatus', e.target.value)}
+                label="Status"
+              >
+                <MenuItem value="all">All Status</MenuItem>
+                <MenuItem value="submitted">Submitted</MenuItem>
+                <MenuItem value="not-submitted">Not Submitted</MenuItem>
+                <MenuItem value="evaluated">Evaluated</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<FilterListIcon />}
+              onClick={resetFilters}
+            >
+              Reset Filters
+            </Button>
+          </Grid>
+        </Grid>
+
+        {/* Results Table */}
         <TableContainer>
           <Table>
             <TableHead>
@@ -408,19 +368,19 @@ const QuizAuthorizedStudents = () => {
                 <TableCell>
                   <TableSortLabel
                     active={sortConfig.key === 'name'}
-                    direction={sortConfig.key === 'name' ? sortConfig.direction : 'asc'}
+                    direction={sortConfig.direction}
                     onClick={() => requestSort('name')}
                   >
-                    Student Name
+                    Name
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>
                   <TableSortLabel
                     active={sortConfig.key === 'admissionNumber'}
-                    direction={sortConfig.key === 'admissionNumber' ? sortConfig.direction : 'asc'}
+                    direction={sortConfig.direction}
                     onClick={() => requestSort('admissionNumber')}
                   >
-                    Admission Number
+                    Admission No.
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>Department</TableCell>
@@ -429,99 +389,75 @@ const QuizAuthorizedStudents = () => {
                 <TableCell>
                   <TableSortLabel
                     active={sortConfig.key === 'score'}
-                    direction={sortConfig.key === 'score' ? sortConfig.direction : 'asc'}
+                    direction={sortConfig.direction}
                     onClick={() => requestSort('score')}
                   >
-                    Score (%)
+                    Score
                   </TableSortLabel>
                 </TableCell>
-               
-                <TableCell>Submission Time</TableCell>
-                <TableCell>
-                  <TableSortLabel
-                    active={sortConfig.key === 'duration'}
-                    direction={sortConfig.key === 'duration' ? sortConfig.direction : 'asc'}
-                    onClick={() => requestSort('duration')}
-                  >
-                    Duration
-                  </TableSortLabel>
-                </TableCell>
-                 <TableCell>
-                  <TableSortLabel
-                    active={sortConfig.key === 'submissionStatus'}
-                    direction={sortConfig.key === 'submissionStatus' ? sortConfig.direction : 'asc'}
-                    onClick={() => requestSort('submissionStatus')}
-                  >
-                    Status
-                  </TableSortLabel>
-                </TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Submit Time</TableCell>
+                <TableCell>Duration</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {sortedStudents.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={10} align="center">
-                    No students found
+              {sortedStudents.map((studentData) => (
+                <TableRow key={studentData.student._id}>
+                  <TableCell>{studentData.student.name}</TableCell>
+                  <TableCell>{studentData.student.admissionNumber}</TableCell>
+                  <TableCell>{studentData.student.department}</TableCell>
+                  <TableCell>{studentData.student.year}</TableCell>
+                  <TableCell>{studentData.student.section}</TableCell>
+                  <TableCell>
+                    {studentData.hasSubmitted ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Typography>
+                          {studentData.totalMarks} / {quiz?.totalMarks}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                          ({calculateScorePercentage(studentData.totalMarks, quiz?.totalMarks).toFixed(1)}%)
+                        </Typography>
+                      </Box>
+                    ) : (
+                      'Not submitted'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={studentData.submissionStatus}
+                      color={
+                        studentData.submissionStatus === 'evaluated' ? 'success' :
+                        studentData.submissionStatus === 'submitted' ? 'primary' :
+                        studentData.submissionStatus === 'started' ? 'warning' : 'default'
+                      }
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {studentData.submitTime ? new Date(studentData.submitTime).toLocaleString() : 'N/A'}
+                  </TableCell>
+                  <TableCell>
+                    {formatDuration(studentData.duration)}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => navigate(`/quizzes/${id}/review/${studentData.student._id}`)}
+                      disabled={!studentData.hasSubmitted}
+                    >
+                      View Details
+                    </Button>
                   </TableCell>
                 </TableRow>
-              ) : (
-                sortedStudents.map((student) => (
-                  <TableRow key={student.student._id}>
-                    <TableCell>{student.student.name}</TableCell>
-                    <TableCell>{student.student.admissionNumber}</TableCell>
-                    <TableCell>{student.student.department}</TableCell>
-                    <TableCell>{student.student.year}</TableCell>
-                    <TableCell>{student.student.section}</TableCell>
-                    <TableCell>
-                      {student.hasSubmitted && student.totalMarks !== undefined ? (
-                        `${calculateScorePercentage(student.totalMarks, quiz.totalMarks).toFixed(2)}%`
-                      ) : (
-                        'Not submitted'
-                      )}
-                    </TableCell>
-                  
-                    <TableCell>
-                      {student.submitTime
-                        ? new Date(student.submitTime).toLocaleString()
-                        : 'Not submitted'}
-                    </TableCell>
-                    <TableCell>
-                      {student.hasSubmitted ? (
-                        formatDuration(student.duration)
-                      ) : (
-                        'Not submitted'
-                      )}
-                    </TableCell>
-                      <TableCell>
-                      <Chip
-                        label={student.submissionStatus}
-                        color={
-                          student.submissionStatus === 'evaluated'
-                            ? 'success'
-                            : student.submissionStatus === 'started'
-                              ? 'warning'
-                              : student.submissionStatus === 'submitted'
-                                ? 'primary'
-                                : 'error'
-                        }
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-
-                      {student.hasSubmitted && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => navigate(`/quizzes/${id}/submissions/${student.student._id}`)}
-                        >
-                          View
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
+              ))}
+              {sortedStudents.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={10} align="center">
+                    No submissions found
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>

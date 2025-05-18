@@ -96,42 +96,41 @@ const SubjectCreate = () => {
     });
   };
 
-  const generateSubjectCode = async () => {
-    try {
-      if (!formData.department || !formData.year || !formData.semester || !formData.sequence) {
-        setError('Please select department, year, semester, and sequence number to generate code');
-        return;
-      }
-
-      const response = await api.post(
-        '/subject/generate-code',
-        {
-          department: formData.department,
-          year: formData.year,
-          semester: formData.semester,
-          sequence: formData.sequence
-        }
-      );
-      setFormData(prev => ({
-        ...prev,
-        code: response.code
-      }));
-      setError('');
-    } catch (error) {
-      console.error('Error generating subject code:', error);
-      setError('Failed to generate subject code');
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Validate subject code format
+    const codeRegex = /^[A-Z]{2}[1-4][1-2][1-9]$/i;
+    if (!codeRegex.test(formData.code)) {
+      setError('Please enter a valid subject code format (e.g., CS311, CS312).');
+      return;
+    }
 
     try {
       await api.post('/subject', formData);
       navigate('/subjects');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to create subject');
+      // Handle specific error cases
+      const errorMessage = error.response?.data?.message || '';
+      
+      if (errorMessage.includes('duplicate key') || errorMessage.toLowerCase().includes('duplicate')) {
+        setError(`Subject code "${formData.code}" already exists. Please use a different code.`);
+      } else if (errorMessage.includes('validation failed')) {
+        if (errorMessage.includes('department')) {
+          setError('Please select a valid department.');
+        } else if (errorMessage.includes('year')) {
+          setError('Please select a valid year (1-4).');
+        } else if (errorMessage.includes('semester')) {
+          setError('Please select a valid semester for the chosen year.');
+        } else if (errorMessage.includes('credits')) {
+          setError('Credits must be at least 1.');
+        } else {
+          setError('Please check all required fields are filled correctly.');
+        }
+      } else {
+        setError('Failed to create subject. Please try again.');
+      }
     }
   };
 
@@ -153,7 +152,10 @@ const SubjectCreate = () => {
         </Typography>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert 
+            severity={error.includes('already exists') ? 'warning' : 'error'} 
+            sx={{ mb: 2 }}
+          >
             {error}
           </Alert>
         )}
@@ -162,35 +164,34 @@ const SubjectCreate = () => {
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <Alert severity="info" sx={{ mb: 2 }}>
-                Subject Code Format: XX111 (e.g., CS111, EC121)<br />
+                Subject Code Format: XX111 (e.g., CS311, CS312)<br />
                 - First two letters: Department code (CS, EC, ME, etc.)<br />
                 - First digit: Year (1-4)<br />
                 - Second digit: Semester in that year (1-2)<br />
-                - Third digit: Subject sequence number (1-9)
+                - Third digit: Subject sequence number (1-9)<br /><br />
+                Note: Subject code must be unique across all subjects.
               </Alert>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12}>
               <TextField
                 required
                 fullWidth
                 label="Subject Code"
                 name="code"
-                value={formData.code}
-                onChange={handleChange}
-                helperText="Format: CS111 (auto-generated)"
-                disabled
+                value={formData.code.toUpperCase()}
+                onChange={(e) => {
+                  const value = e.target.value.toUpperCase();
+                  handleChange({
+                    target: {
+                      name: 'code',
+                      value: value
+                    }
+                  });
+                }}
+                helperText="Format: CS311, CS312, etc. (Must be unique)"
+                placeholder="Enter subject code"
+                error={error.includes('code')}
               />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Button
-                variant="contained"
-                onClick={generateSubjectCode}
-                fullWidth
-                sx={{ mt: 1 }}
-                disabled={!formData.department || !formData.year || !formData.semester || !formData.sequence}
-              >
-                Generate Code
-              </Button>
             </Grid>
             <Grid item xs={12}>
               <TextField

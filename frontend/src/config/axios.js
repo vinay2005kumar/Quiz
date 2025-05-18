@@ -18,9 +18,9 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // Ensure URL starts with /api
-    if (!config.url.startsWith('/api/') && !config.url.startsWith('http')) {
-      config.url = `/api${config.url.startsWith('/') ? '' : '/'}${config.url}`;
+    // Add /api prefix to all requests that don't already have it
+    if (!config.url.startsWith('/api/')) {
+      config.url = `/api${config.url}`;
     }
 
     return config;
