@@ -1,7 +1,12 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { LocalizationProvider } from '@mui/x-date-pickers';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Box } from '@mui/material';
+import { NavigationProvider } from './context/NavigationContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Navigation from './components/common/Navigation';
 
 // Components
 import Login from './components/auth/Login';
@@ -21,10 +26,16 @@ import SubjectEdit from './components/subject/SubjectEdit';
 import AdmissionRanges from './components/admin/AdmissionRanges';
 import QuizOverview from './components/quiz/QuizOverview';
 import QuizStatistics from './components/quiz/QuizStatistics';
+import AdminRoutes from './routes/AdminRoutes';
+import EventQuizAccounts from './components/admin/EventQuizAccounts';
+import AdminEventQuizzes from './components/admin/EventQuizzes';
+import PublicEventQuizzes from './components/quiz/EventQuizzes';
+import AccountManagement from './components/admin/AccountManagement';
+import Profile from './components/profile/Profile';
+import StudentAccounts from './components/admin/StudentAccounts';
+import LandingPage from './components/LandingPage';
 
-// Context
-import { AuthProvider, useAuth } from './context/AuthContext';
-
+// Create theme
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -150,174 +161,114 @@ const theme = createTheme({
   },
 });
 
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  
-  if (loading) {
-    return <div>Loading...</div>;
+const PrivateRoute = ({ children, roles = [] }) => {
+  const { user, isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
-  
-  if (!user) {
-    return <Navigate to="/login" />;
+
+  // If roles are specified and user's role doesn't match, redirect to appropriate dashboard
+  if (roles.length > 0 && !roles.includes(user.role)) {
+    switch (user.role) {
+      case 'admin':
+        return <Navigate to="/admin/dashboard" replace />;
+      case 'faculty':
+        return <Navigate to="/faculty/dashboard" replace />;
+      case 'student':
+        return <Navigate to="/student/dashboard" replace />;
+      default:
+        return <Navigate to="/login" replace />;
+    }
   }
-  
+
   return children;
-};
-
-// App Routes Component
-const AppRoutes = () => {
-  const { user } = useAuth();
-
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
-      {user && <Navbar />}
-      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
-        <Routes>
-          <Route 
-            path="/login" 
-            element={user ? <Navigate to="/dashboard" /> : <Login />} 
-          />
-          <Route 
-            path="/register" 
-            element={user ? <Navigate to="/dashboard" /> : <Register />} 
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes"
-            element={
-              <ProtectedRoute>
-                <QuizList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes-overview"
-            element={
-              <ProtectedRoute>
-                <QuizOverview />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/create"
-            element={
-              <ProtectedRoute>
-                <QuizCreate />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/upload"
-            element={
-              <ProtectedRoute>
-                <QuizFileUpload />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/:id"
-            element={
-              <ProtectedRoute>
-                <QuizAttempt />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/:id/review"
-            element={
-              <ProtectedRoute>
-                <QuizReview />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/:id/submissions"
-            element={
-              <ProtectedRoute>
-                <QuizSubmissions />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/:id/submissions/:studentId"
-            element={
-              <ProtectedRoute>
-                <QuizReview />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quizzes/:id/edit"
-            element={
-              <ProtectedRoute>
-                <QuizEdit />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/subjects"
-            element={
-              <ProtectedRoute>
-                <SubjectList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/subjects/create"
-            element={
-              <ProtectedRoute>
-                <SubjectCreate />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/subjects/edit/:id"
-            element={
-              <ProtectedRoute>
-                <SubjectEdit />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/admission-ranges"
-            element={
-              <ProtectedRoute>
-                <AdmissionRanges />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/quiz-statistics/:quizId"
-            element={
-              <ProtectedRoute>
-                <QuizStatistics />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/dashboard" />} />
-        </Routes>
-      </Box>
-    </Box>
-  );
 };
 
 function App() {
   return (
     <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </Router>
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <CssBaseline />
+        <Router>
+          <AuthProvider>
+            <NavigationProvider>
+              <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/events" element={<PublicEventQuizzes />} />
+
+                  {/* Student Routes */}
+                  <Route path="/student/*" element={
+                    <PrivateRoute roles={['student']}>
+                      <Navigation />
+                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <Routes>
+                          <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/quizzes" element={<QuizList />} />
+                          <Route path="/profile" element={<Profile />} />
+                          <Route path="*" element={<Navigate to="/student/dashboard" replace />} />
+                        </Routes>
+                      </Box>
+                    </PrivateRoute>
+                  } />
+
+                  {/* Faculty Routes */}
+                  <Route path="/faculty/*" element={
+                    <PrivateRoute roles={['faculty']}>
+                      <Navigation />
+                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <Routes>
+                          <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/quizzes" element={<QuizList />} />
+                          <Route path="/quizzes/create" element={<QuizCreate />} />
+                          <Route path="/profile" element={<Profile />} />
+                          <Route path="*" element={<Navigate to="/faculty/dashboard" replace />} />
+                        </Routes>
+                      </Box>
+                    </PrivateRoute>
+                  } />
+
+                  {/* Admin Routes */}
+                  <Route path="/admin/*" element={
+                    <PrivateRoute roles={['admin']}>
+                      <Navigation />
+                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+                        <AdminRoutes />
+                      </Box>
+                    </PrivateRoute>
+                  } />
+
+                  {/* Default redirect based on role */}
+                  <Route path="/dashboard" element={
+                    <PrivateRoute>
+                      {({ user }) => {
+                        switch (user.role) {
+                          case 'admin':
+                            return <Navigate to="/admin/dashboard" replace />;
+                          case 'faculty':
+                            return <Navigate to="/faculty/dashboard" replace />;
+                          case 'student':
+                            return <Navigate to="/student/dashboard" replace />;
+                          default:
+                            return <Navigate to="/login" replace />;
+                        }
+                      }}
+                    </PrivateRoute>
+                  } />
+
+                  {/* Catch-all route */}
+                  <Route path="*" element={<Navigate to="/login" replace />} />
+                </Routes>
+              </Box>
+            </NavigationProvider>
+          </AuthProvider>
+        </Router>
+      </LocalizationProvider>
     </ThemeProvider>
   );
 }

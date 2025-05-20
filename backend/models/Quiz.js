@@ -40,10 +40,44 @@ const quizSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  type: {
+    type: String,
+    enum: ['academic', 'event'],
+    required: true,
+    default: 'academic'
+  },
   subject: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Subject',
-    required: true
+    required: function() {
+      return this.type === 'academic';
+    }
+  },
+  eventDetails: {
+    name: {
+      type: String,
+      required: function() {
+        return this.type === 'event';
+      }
+    },
+    description: {
+      type: String,
+      required: function() {
+        return this.type === 'event';
+      }
+    },
+    organizer: {
+      type: String,
+      required: function() {
+        return this.type === 'event';
+      }
+    },
+    venue: {
+      type: String,
+      required: function() {
+        return this.type === 'event';
+      }
+    }
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

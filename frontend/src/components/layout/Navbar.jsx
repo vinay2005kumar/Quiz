@@ -89,6 +89,11 @@ const Navbar = () => {
           label: 'My Quizzes', 
           path: '/quizzes',
           icon: <SchoolIcon sx={{ mr: 1 }} />
+        },
+        { 
+          label: 'Create Event Quiz', 
+          path: '/quizzes/event/create',
+          icon: <QuizIcon sx={{ mr: 1 }} />
         }
       );
     } else if (user.role === 'student') {
@@ -96,6 +101,11 @@ const Navbar = () => {
         { 
           label: 'Available Quizzes', 
           path: '/quizzes',
+          icon: <QuizIcon sx={{ mr: 1 }} />
+        },
+        { 
+          label: 'Event Quizzes', 
+          path: '/quizzes/event',
           icon: <QuizIcon sx={{ mr: 1 }} />
         }
       );
@@ -114,6 +124,16 @@ const Navbar = () => {
         {
           label: 'Quiz Overview',
           path: '/quizzes-overview',
+          icon: <QuizIcon sx={{ mr: 1 }} />
+        },
+        { 
+          label: 'Event Quiz Accounts', 
+          path: '/admin/event-quiz-accounts',
+          icon: <QuizIcon sx={{ mr: 1 }} />
+        },
+        {
+          label: 'Event Quizzes',
+          path: '/admin/event-quizzes',
           icon: <QuizIcon sx={{ mr: 1 }} />
         }
       );

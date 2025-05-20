@@ -62,15 +62,9 @@ const COLORS = {
 };
 
 const QuizList = () => {
-  const departments = [
-    'Computer Science',
-    'Electronics',
-    'Mechanical',
-    'Civil',
-    'Electrical'
-  ];
-
   const [quizzes, setQuizzes] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [sections, setSections] = useState([]);
   const [submissions, setSubmissions] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -79,12 +73,12 @@ const QuizList = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [quizToDelete, setQuizToDelete] = useState(null);
   const [filters, setFilters] = useState({
-    year: 'all',
-    department: user?.department || 'all',
-    section: 'all',
-    subject: 'all',
-    status: 'all',
-    faculty: 'all'
+    department: '',
+    year: '',
+    semester: '',
+    section: '',
+    subject: '',
+    status: ''
   });
 
   const [statistics, setStatistics] = useState({
@@ -107,6 +101,8 @@ const QuizList = () => {
 
   useEffect(() => {
     fetchQuizzes();
+    fetchDepartments();
+    fetchSections();
   }, []);
 
   useEffect(() => {
@@ -137,7 +133,7 @@ const QuizList = () => {
       setError('');
       
       // Use the correct endpoint for all roles
-      const response = await api.get('/quiz');
+      const response = await api.get('/api/quiz');
       
       // Ensure response is an array
       const quizData = Array.isArray(response) ? response : [];
@@ -146,9 +142,19 @@ const QuizList = () => {
       // For students, fetch their submissions
       if (user.role === 'student') {
         const submissionPromises = quizData.map(quiz =>
-          api.get(`/quiz/${quiz._id}/submission`)
+          api.get(`/api/quiz/${quiz._id}/submission`)
             .then(res => ({ quizId: quiz._id, ...res }))
-            .catch(() => null)
+            .catch((err) => {
+              // Silently handle 404 errors (no submission found)
+              if (err.response?.status === 404) {
+                return {
+                  quizId: quiz._id,
+                  status: 'not_attempted'
+                };
+              }
+              console.error(`Error fetching submission for quiz ${quiz._id}:`, err);
+              return null;
+            })
         );
         const submissions = await Promise.all(submissionPromises);
         const submissionMap = {};
@@ -161,7 +167,7 @@ const QuizList = () => {
       // For admin, fetch all submissions for statistics
       if (user.role === 'admin') {
         console.log('Fetching admin statistics...');
-        const allSubmissions = await api.get('/quiz/all-submissions');
+        const allSubmissions = await api.get('/api/quiz/all-submissions');
         console.log('Admin submissions response:', allSubmissions);
         setSubmissions(allSubmissions || {});
       }
@@ -173,6 +179,46 @@ const QuizList = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get('/api/settings/departments');
+      if (response && Array.isArray(response.departments)) {
+        setDepartments(response.departments);
+      } else {
+        console.error('Invalid departments data:', response);
+        setDepartments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      setDepartments([]);
+    }
+  };
+
+  const fetchSections = async () => {
+    try {
+      const response = await api.get('/api/settings/sections');
+      if (response && Array.isArray(response.sections)) {
+        setSections(response.sections);
+      } else {
+        console.error('Invalid sections data:', response);
+        setSections([]);
+      }
+    } catch (error) {
+      console.error('Error fetching sections:', error);
+      setSections([]);
+    }
+  };
+
+  const getAvailableSections = (department, year, semester) => {
+    if (!department || !year || !semester) return [];
+    const matchingSection = sections.find(section => 
+      section.department === department && 
+      section.year.toString() === year.toString() &&
+      section.semester.toString() === semester.toString()
+    );
+    return matchingSection ? matchingSection.sections : [];
   };
 
   const calculateStatistics = () => {
@@ -348,49 +394,13 @@ const QuizList = () => {
 
   const getFilteredQuizzes = () => {
     return quizzes.filter(quiz => {
-      if (!quiz) return false;
-
-      // Check year filter
-      if (filters.year !== 'all') {
-        const hasMatchingYear = quiz.allowedGroups.some(
-          group => group.year === parseInt(filters.year)
-        );
-        if (!hasMatchingYear) return false;
-      }
-
-      // Check section filter
-      if (filters.section !== 'all') {
-        const hasMatchingSection = quiz.allowedGroups.some(
-          group => group.section === filters.section
-        );
-        if (!hasMatchingSection) return false;
-      }
-
-      // Check subject filter
-      if (filters.subject !== 'all' && quiz?.subject?._id !== filters.subject) {
-        return false;
-      }
-
-      // Check status filter
-      if (filters.status !== 'all') {
-        const now = new Date();
-        const startTime = new Date(quiz.startTime);
-        const endTime = new Date(quiz.endTime);
-        
-        switch (filters.status) {
-          case 'active':
-            if (!(now >= startTime && now <= endTime)) return false;
-            break;
-          case 'upcoming':
-            if (!(now < startTime)) return false;
-            break;
-          case 'completed':
-            if (!(now > endTime)) return false;
-            break;
-        }
-      }
-      
-      return true;
+      const departmentMatch = !filters.department || quiz.department === filters.department;
+      const yearMatch = !filters.year || quiz.year === filters.year;
+      const semesterMatch = !filters.semester || quiz.semester === filters.semester;
+      const sectionMatch = !filters.section || quiz.section === filters.section;
+      const subjectMatch = !filters.subject || quiz.subject === filters.subject;
+      const statusMatch = !filters.status || quiz.status === filters.status;
+      return departmentMatch && yearMatch && semesterMatch && sectionMatch && subjectMatch && statusMatch;
     });
   };
 
@@ -404,196 +414,134 @@ const QuizList = () => {
 
   const renderFilters = () => (
     <Paper sx={{ p: 2, mb: 2 }}>
-      <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-        <FilterListIcon sx={{ mr: 1 }} />
-        <Typography variant="h6">Filters & Statistics</Typography>
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <FilterListIcon /> Filters
+        </Typography>
       </Box>
-
       <Grid container spacing={2}>
-        {/* Filter Controls */}
-        <Grid item xs={12} md={8}>
-          <Grid container spacing={2}>
-            {/* Faculty Filter - Only for Admin */}
-            {user?.role === 'admin' && (
-              <Grid item xs={12} sm={6} md={4}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Faculty</InputLabel>
-                  <Select
-                    name="faculty"
-                    value={filters.faculty}
-                    onChange={(e) => handleFilterChange(e)}
-                    label="Faculty"
-                  >
-                    <MenuItem value="all">All Faculty</MenuItem>
-                    {quizzes
-                      .map(quiz => quiz.createdBy)
-                      .filter((faculty, index, self) => 
-                        faculty && index === self.findIndex(f => f._id === faculty._id)
-                      )
-                      .map(faculty => (
-                        <MenuItem key={faculty._id} value={faculty._id}>
-                          {faculty.name}
-                        </MenuItem>
-                      ))
-                    }
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            <Grid item xs={12} sm={6} md={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Department</InputLabel>
-                <Select
-                  name="department"
-                  value={filters.department}
-                  onChange={(e) => handleFilterChange(e)}
-                  label="Department"
-                >
-                  <MenuItem value="all">All Departments</MenuItem>
-                  {departments.map(dept => (
-                    <MenuItem key={dept} value={dept}>{dept}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Year</InputLabel>
-                <Select
-                  name="year"
-                  value={filters.year}
-                  onChange={(e) => handleFilterChange(e)}
-                  label="Year"
-                >
-                  <MenuItem value="all">All Years</MenuItem>
-                  {[1, 2, 3, 4].map(year => (
-                    <MenuItem key={year} value={year}>Year {year}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Section</InputLabel>
-                <Select
-                  name="section"
-                  value={filters.section}
-                  onChange={(e) => handleFilterChange(e)}
-                  label="Section"
-                >
-                  <MenuItem value="all">All Sections</MenuItem>
-                  {['A', 'B', 'C', 'D', 'E'].map(section => (
-                    <MenuItem key={section} value={section}>Section {section}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Subject</InputLabel>
-                <Select
-                  name="subject"
-                  value={filters.subject}
-                  onChange={(e) => handleFilterChange(e)}
-                  label="Subject"
-                >
-                  <MenuItem value="all">All Subjects</MenuItem>
-                  {quizzes
-                    .map(quiz => quiz.subject)
-                    .filter((subject, index, self) => 
-                      index === self.findIndex(s => s._id === subject._id)
-                    )
-                    .map(subject => (
-                      <MenuItem key={subject._id} value={subject._id}>
-                        {subject.name}
-                      </MenuItem>
-                    ))
-                  }
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Status</InputLabel>
-                <Select
-                  name="status"
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange(e)}
-                  label="Status"
-                >
-                  <MenuItem value="all">All Status</MenuItem>
-                  <MenuItem value="active">Active</MenuItem>
-                  <MenuItem value="upcoming">Upcoming</MenuItem>
-                  <MenuItem value="completed">Completed</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                fullWidth
-                variant="outlined"
-                onClick={() => {
-                  setFilters({
-                    year: 'all',
-                    department: 'all',
-                    section: 'all',
-                    subject: 'all',
-                    status: 'all',
-                    faculty: 'all'
-                  });
-                }}
-                disabled={Object.values(filters).every(v => v === 'all')}
-              >
-                Clear Filters
-              </Button>
-            </Grid>
-          </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Department</InputLabel>
+            <Select
+              value={filters.department}
+              onChange={(e) => setFilters({ ...filters, department: e.target.value, year: '', semester: '', section: '' })}
+              label="Department"
+            >
+              <MenuItem value="">All</MenuItem>
+              {departments.map((dept) => (
+                <MenuItem key={dept._id} value={dept.name}>
+                  {dept.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Grid>
-
-        {/* Statistics Summary */}
-        <Grid item xs={12} md={4}>
-          <Paper elevation={0} sx={{ p: 2, bgcolor: 'background.default' }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Quick Statistics
-            </Typography>
-            <Box sx={{ mt: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Total Quizzes: {quizzes.length}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Students: {statistics.totalStudents}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Submissions: {statistics.submittedCount} ({((statistics.submittedCount / statistics.totalStudents) * 100).toFixed(1)}%)
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Average Score: {statistics.averageScore.toFixed(1)}%
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Score Distribution:
-              </Typography>
-              <Box sx={{ pl: 2 }}>
-                <Typography variant="body2" color="success.main">
-                  Excellent (&gt;90%): {statistics.scoreDistribution.excellent}
-                </Typography>
-                <Typography variant="body2" color="info.main">
-                  Good (70-90%): {statistics.scoreDistribution.good}
-                </Typography>
-                <Typography variant="body2" color="warning.main">
-                  Average (50-70%): {statistics.scoreDistribution.average}
-                </Typography>
-                <Typography variant="body2" color="error.main">
-                  Poor (&lt;50%): {statistics.scoreDistribution.poor}
-                </Typography>
-              </Box>
-            </Box>
-          </Paper>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Year</InputLabel>
+            <Select
+              value={filters.year}
+              onChange={(e) => setFilters({ ...filters, year: e.target.value, semester: '', section: '' })}
+              label="Year"
+              disabled={!filters.department}
+            >
+              <MenuItem value="">All</MenuItem>
+              {[1, 2, 3, 4].map(year => (
+                <MenuItem key={year} value={year}>Year {year}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Semester</InputLabel>
+            <Select
+              value={filters.semester}
+              onChange={(e) => setFilters({ ...filters, semester: e.target.value, section: '' })}
+              label="Semester"
+              disabled={!filters.year}
+            >
+              <MenuItem value="">All</MenuItem>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                <MenuItem key={sem} value={sem}>Semester {sem}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Section</InputLabel>
+            <Select
+              value={filters.section}
+              onChange={(e) => setFilters({ ...filters, section: e.target.value })}
+              label="Section"
+              disabled={!filters.department || !filters.year || !filters.semester}
+            >
+              <MenuItem value="">All</MenuItem>
+              {getAvailableSections(filters.department, filters.year, filters.semester).map(section => (
+                <MenuItem key={section} value={section}>
+                  Section {section}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Subject</InputLabel>
+            <Select
+              value={filters.subject}
+              onChange={(e) => setFilters({ ...filters, subject: e.target.value })}
+              label="Subject"
+            >
+              <MenuItem value="">All</MenuItem>
+              {quizzes
+                .map(quiz => quiz.subject)
+                .filter((subject, index, self) => 
+                  index === self.findIndex(s => s._id === subject._id)
+                )
+                .map(subject => (
+                  <MenuItem key={subject._id} value={subject._id}>
+                    {subject.name}
+                  </MenuItem>
+                ))
+              }
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              label="Status"
+            >
+              <MenuItem value="">All</MenuItem>
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="upcoming">Upcoming</MenuItem>
+              <MenuItem value="completed">Completed</MenuItem>
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <Button
+            fullWidth
+            variant="outlined"
+            onClick={() => setFilters({
+              department: '',
+              year: '',
+              semester: '',
+              section: '',
+              subject: '',
+              status: ''
+            })}
+            disabled={!filters.department && !filters.year && !filters.semester && 
+              !filters.section && !filters.subject && !filters.status}
+          >
+            Clear Filters
+          </Button>
         </Grid>
       </Grid>
     </Paper>
@@ -887,6 +835,29 @@ const QuizList = () => {
                   </Select>
                 </FormControl>
               </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Semester</InputLabel>
+                  <Select
+                    name="semester"
+                    value={filters.semester}
+                    onChange={(e) => handleFilterChange(e)}
+                    label="Semester"
+                  >
+                    <MenuItem value="all">All Semesters</MenuItem>
+                    <MenuItem value={1}>Semester 1</MenuItem>
+                    <MenuItem value={2}>Semester 2</MenuItem>
+                    <MenuItem value={3}>Semester 3</MenuItem>
+                    <MenuItem value={4}>Semester 4</MenuItem>
+                    <MenuItem value={5}>Semester 5</MenuItem>
+                    <MenuItem value={6}>Semester 6</MenuItem>
+                    <MenuItem value={7}>Semester 7</MenuItem>
+                    <MenuItem value={8}>Semester 8</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Section</InputLabel>
@@ -903,6 +874,7 @@ const QuizList = () => {
                   </Select>
                 </FormControl>
               </Grid>
+
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Status</InputLabel>
@@ -919,6 +891,7 @@ const QuizList = () => {
                   </Select>
                 </FormControl>
               </Grid>
+
               <Grid item xs={12} sm={6} md={3}>
                 <Button
                   fullWidth
@@ -930,7 +903,8 @@ const QuizList = () => {
                       section: 'all',
                       subject: 'all',
                       status: 'all',
-                      faculty: 'all'
+                      faculty: 'all',
+                      semester: 'all'  // Add semester to reset
                     });
                   }}
                   disabled={Object.values(filters).every(v => v === 'all')}

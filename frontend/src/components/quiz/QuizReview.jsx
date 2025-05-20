@@ -36,7 +36,7 @@ const QuizReview = () => {
         setError('');
         
         // First fetch quiz details
-        const quizResponse = await api.get(`/quiz/${id}`);
+        const quizResponse = await api.get(`/api/quiz/${id}`);
         console.log('Quiz response:', quizResponse);
         
         if (!quizResponse || !quizResponse.title) {
@@ -49,9 +49,9 @@ const QuizReview = () => {
         let submissionResponse;
         try {
           if (user.role === 'faculty' && studentId) {
-            submissionResponse = await api.get(`/quiz/${id}/submissions/${studentId}`);
+            submissionResponse = await api.get(`/api/quiz/${id}/submissions/${studentId}`);
           } else {
-            submissionResponse = await api.get(`/quiz/${id}/submission`);
+            submissionResponse = await api.get(`/api/quiz/${id}/submission`);
           }
           console.log('Submission response:', submissionResponse);
 

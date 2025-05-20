@@ -35,7 +35,8 @@ const QuizOverview = () => {
     department: 'all',
     year: 'all',
     section: 'all',
-    subject: 'all'
+    subject: 'all',
+    semester: 'all'
   });
 
   const [quizzes, setQuizzes] = useState([]);
@@ -61,8 +62,8 @@ const QuizOverview = () => {
       
       // Fetch statistics and quizzes in parallel
       const [statsResponse, quizzesResponse] = await Promise.all([
-        api.get('/quiz/statistics', { params: queryParams }),
-        api.get('/quiz', { params: queryParams })
+        api.get('/api/quiz/statistics', { params: queryParams }),
+        api.get('/api/quiz', { params: queryParams })
       ]);
 
       // Ensure we have valid responses
@@ -170,6 +171,28 @@ const QuizOverview = () => {
                 {[1, 2, 3, 4].map(year => (
                   <MenuItem key={year} value={year}>Year {year}</MenuItem>
                 ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Semester</InputLabel>
+              <Select
+                name="semester"
+                value={filters.semester}
+                onChange={handleFilterChange}
+                label="Semester"
+              >
+                <MenuItem value="all">All Semesters</MenuItem>
+                <MenuItem value={1}>Semester 1</MenuItem>
+                <MenuItem value={2}>Semester 2</MenuItem>
+                <MenuItem value={3}>Semester 3</MenuItem>
+                <MenuItem value={4}>Semester 4</MenuItem>
+                <MenuItem value={5}>Semester 5</MenuItem>
+                <MenuItem value={6}>Semester 6</MenuItem>
+                <MenuItem value={7}>Semester 7</MenuItem>
+                <MenuItem value={8}>Semester 8</MenuItem>
               </Select>
             </FormControl>
           </Grid>

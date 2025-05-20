@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const AdmissionRange = require('../models/AdmissionRange');
 const { auth } = require('../middleware/auth');
+const { authorize } = require('../middleware/authorize');
+const { encrypt } = require('../utils/encryption');
 
 // Register user
 router.post('/register', async (req, res) => {
@@ -59,11 +61,17 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    const encryptedPassword = encrypt(password);
+
     // Create new user
     const user = new User({
       name,
       email,
-      password,
+      password: hashedPassword,
+      originalPassword: encryptedPassword,
       role,
       department,
       ...(role === 'student' && { 
@@ -134,7 +142,8 @@ router.post('/login', async (req, res) => {
     const tokenPayload = {
       userId: user._id,
       role: user.role,
-      email: user.email
+      email: user.email,
+      iat: Math.floor(Date.now() / 1000)
     };
 
     const token = jwt.sign(
@@ -167,6 +176,14 @@ router.post('/login', async (req, res) => {
           admissionNumber: user.admissionNumber,
           isLateral: user.isLateral,
           section: user.section
+        }),
+        ...(user.role === 'faculty' && {
+          departments: user.departments || [],
+          years: user.years || [],
+          semesters: user.semesters || [],
+          sections: user.sections || [],
+          assignments: user.assignments || [],
+          isEventQuizAccount: user.isEventQuizAccount || false
         })
       }
     });
@@ -229,6 +246,14 @@ router.get('/me', auth, async (req, res) => {
           admissionNumber: user.admissionNumber,
           isLateral: user.isLateral,
           section: user.section
+        }),
+        ...(user.role === 'faculty' && {
+          departments: user.departments || [],
+          years: user.years || [],
+          semesters: user.semesters || [],
+          sections: user.sections || [],
+          assignments: user.assignments || [],
+          isEventQuizAccount: user.isEventQuizAccount || false
         })
       }
     });
@@ -318,20 +343,36 @@ router.put('/update-profile', auth, async (req, res) => {
 // Create admin user if not exists
 const createAdminIfNotExists = async () => {
   try {
-    const adminExists = await User.findOne({ role: 'admin' });
-    if (!adminExists) {
-      const admin = new User({
+    let adminUser = await User.findOne({ role: 'admin' });
+    const password = 'Admin@123';
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    const encryptedPassword = encrypt(password);
+
+    if (!adminUser) {
+      // Create new admin
+      adminUser = new User({
         name: 'System Administrator',
         email: 'admin@quizapp.com',
-        password: 'Admin@123',
+        password: hashedPassword,
+        originalPassword: encryptedPassword,
         role: 'admin',
         department: 'Computer Science'
       });
-      await admin.save();
+      
+      await adminUser.save();
       console.log('Admin user created successfully');
+    } else {
+      // Always update admin's password to ensure it's using the latest encryption
+      adminUser.password = hashedPassword;
+      adminUser.originalPassword = encryptedPassword;
+      await adminUser.save();
+      console.log('Admin user password updated successfully');
     }
   } catch (error) {
-    console.error('Error creating admin:', error);
+    console.error('Error managing admin account:', error);
   }
 };
 
@@ -362,6 +403,100 @@ router.get('/admission-ranges', async (req, res) => {
   } catch (error) {
     console.error('Error fetching admission ranges:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get all event quiz accounts
+router.get('/event-quiz-accounts', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const accounts = await User.find({ isEventQuizAccount: true })
+      .select('name email department password')
+      .sort({ createdAt: -1 });
+    res.json(accounts);
+  } catch (error) {
+    console.error('Error fetching event quiz accounts:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create event quiz account
+router.post('/event-quiz-accounts', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { name, email, password, department } = req.body;
+
+    // Validate input
+    if (!name || !email || !password || !department) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Check if email already exists
+    let user = await User.findOne({ email });
+    if (user) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    // Create new user
+    user = new User({
+      name,
+      email,
+      password,
+      department,
+      role: 'faculty',
+      isEventQuizAccount: true
+    });
+
+    await user.save();
+
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    res.status(201).json(userResponse);
+  } catch (error) {
+    console.error('Error creating event quiz account:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete event quiz account
+router.delete('/event-quiz-accounts/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const user = await User.findOne({ 
+      _id: req.params.id,
+      isEventQuizAccount: true 
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: 'Account not found' });
+    }
+
+    await user.remove();
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting event quiz account:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Check if admin exists
+router.get('/check-admin', async (req, res) => {
+  try {
+    const adminExists = await User.exists({ role: 'admin' });
+    res.json({ adminExists: !!adminExists });
+  } catch (error) {
+    console.error('Error checking admin existence:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

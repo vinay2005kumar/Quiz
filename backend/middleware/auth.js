@@ -33,7 +33,7 @@ const auth = async (req, res, next) => {
 
       if (!user) {
         console.log('Auth middleware - User not found for token');
-        return res.status(401).json({ message: 'User not found' });
+        return res.status(401).json({ message: 'Invalid credentials' });
       }
 
       // Check token expiration
@@ -65,8 +65,13 @@ const auth = async (req, res, next) => {
         name: jwtError.name,
         tokenPreview: token ? `${token.substring(0, 10)}...` : null
       });
+      
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ message: 'Token has expired' });
+      }
+      
       return res.status(401).json({ 
-        message: 'Invalid token',
+        message: 'Invalid credentials',
         error: jwtError.name
       });
     }
@@ -103,4 +108,17 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { auth, authorize }; 
+const isAdmin = async (req, res, next) => {
+  try {
+    await auth(req, res, () => {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ message: 'Access denied. Admin only.' });
+      }
+      next();
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error during admin check' });
+  }
+};
+
+module.exports = { auth, authorize, isAdmin }; 

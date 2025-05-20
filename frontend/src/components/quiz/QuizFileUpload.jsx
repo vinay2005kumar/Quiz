@@ -61,7 +61,7 @@ const QuizFileUpload = () => {
     try {
       setLoading(true);
       console.log('Fetching subjects...');
-      const response = await api.get('/subject');
+      const response = await api.get('/api/subject');
       console.log('Subjects response:', response);
       
       // Ensure response is an array

@@ -1,32 +1,37 @@
 import { useState, useEffect } from 'react';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  Container,
+  Paper,
+  Typography,
+  Box,
   Button,
+  Grid,
+  TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Grid,
-  Alert
+  Alert,
+  CircularProgress
 } from '@mui/material';
+import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
-const EditProfile = ({ open, onClose }) => {
-  const { user, updateProfile } = useAuth();
+const EditProfile = () => {
+  const { user, updateUser } = useAuth();
+  const [departments, setDepartments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     department: '',
     year: '',
+    semester: '',
     section: '',
-    admissionNumber: ''
+    password: ''
   });
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -35,25 +40,24 @@ const EditProfile = ({ open, onClose }) => {
         email: user.email || '',
         department: user.department || '',
         year: user.year || '',
+        semester: user.semester || '',
         section: user.section || '',
-        admissionNumber: user.admissionNumber || ''
+        password: ''
       });
     }
+    fetchDepartments();
   }, [user]);
 
-  const departments = [
-    'Computer Science',
-    'Electronics',
-    'Mechanical',
-    'Civil',
-    'Electrical'
-  ];
-
-  const sections = ['A', 'B', 'C', 'D', 'E'];
-
-  const validateEmail = (email) => {
-    const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    return re.test(email);
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get('/api/settings/departments');
+      setDepartments(response.data.departments);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      setError('Failed to fetch departments');
+      setLoading(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -62,8 +66,6 @@ const EditProfile = ({ open, onClose }) => {
       ...prev,
       [name]: value
     }));
-    // Clear any previous errors when user starts typing
-    if (error) setError('');
   };
 
   const handleSubmit = async (e) => {
@@ -71,35 +73,43 @@ const EditProfile = ({ open, onClose }) => {
     setError('');
     setSuccess('');
 
-    // Validate email
-    if (!validateEmail(formData.email)) {
-      setError('Please enter a valid email address');
-      return;
-    }
-
     try {
-      const result = await updateProfile(formData);
-      if (result.success) {
-        setSuccess('Profile updated successfully');
-        setTimeout(() => {
-          onClose();
-        }, 1500);
-      } else {
-        setError(result.error || 'Failed to update profile');
-      }
+      const response = await api.put('/api/profile', formData);
+      updateUser(response.data);
+      setSuccess('Profile updated successfully');
     } catch (error) {
-      setError('An unexpected error occurred');
+      setError(error.response?.data?.message || 'Failed to update profile');
     }
   };
 
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Edit Profile</DialogTitle>
-      <form onSubmit={handleSubmit}>
-        <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          
+    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+      <Paper sx={{ p: 3 }}>
+        <Typography variant="h4" gutterBottom>
+          Edit Profile
+        </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            {success}
+          </Alert>
+        )}
+
+        <Box component="form" onSubmit={handleSubmit}>
           <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
@@ -120,8 +130,7 @@ const EditProfile = ({ open, onClose }) => {
                 value={formData.email}
                 onChange={handleChange}
                 required
-                error={!!error && error.includes('email')}
-                helperText={error && error.includes('email') ? error : ''}
+                disabled
               />
             </Grid>
             <Grid item xs={12}>
@@ -134,8 +143,8 @@ const EditProfile = ({ open, onClose }) => {
                   label="Department"
                 >
                   {departments.map(dept => (
-                    <MenuItem key={dept} value={dept}>
-                      {dept}
+                    <MenuItem key={dept._id} value={dept.name}>
+                      {dept.name}
                     </MenuItem>
                   ))}
                 </Select>
@@ -162,14 +171,33 @@ const EditProfile = ({ open, onClose }) => {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <FormControl fullWidth required>
+                    <InputLabel>Semester</InputLabel>
+                    <Select
+                      name="semester"
+                      value={formData.semester}
+                      onChange={handleChange}
+                      label="Semester"
+                      disabled={!formData.year}
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                        <MenuItem key={sem} value={sem}>
+                          Semester {sem}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth required>
                     <InputLabel>Section</InputLabel>
                     <Select
                       name="section"
                       value={formData.section}
                       onChange={handleChange}
                       label="Section"
+                      disabled={!formData.department || !formData.year}
                     >
-                      {sections.map(section => (
+                      {['A', 'B', 'C', 'D', 'E'].map(section => (
                         <MenuItem key={section} value={section}>
                           Section {section}
                         </MenuItem>
@@ -177,29 +205,33 @@ const EditProfile = ({ open, onClose }) => {
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Admission Number"
-                    name="admissionNumber"
-                    value={formData.admissionNumber}
-                    onChange={handleChange}
-                    required
-                    disabled
-                  />
-                </Grid>
               </>
             )}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="New Password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                helperText="Leave blank to keep current password"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                fullWidth
+              >
+                Update Profile
+              </Button>
+            </Grid>
           </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="contained">
-            Save Changes
-          </Button>
-        </DialogActions>
-      </form>
-    </Dialog>
+        </Box>
+      </Paper>
+    </Container>
   );
 };
 

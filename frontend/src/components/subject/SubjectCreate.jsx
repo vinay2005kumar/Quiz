@@ -17,6 +17,15 @@ import {
 import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
+const DEPARTMENTS = [
+  'Computer Science and Engineering',
+  'Electronics and Communication Engineering',
+  'Electrical and Electronics Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Information Technology'
+];
+
 const SubjectCreate = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -31,14 +40,6 @@ const SubjectCreate = () => {
     credits: '',
     description: ''
   });
-
-  const departments = [
-    'Computer Science',
-    'Electronics',
-    'Mechanical',
-    'Civil',
-    'Electrical'
-  ];
 
   const years = [
     { value: 1, label: 'First Year' },
@@ -108,7 +109,9 @@ const SubjectCreate = () => {
     }
 
     try {
-      await api.post('/subject', formData);
+      setSubmitting(true);
+      setError('');
+      await api.post('/api/subject', formData);
       navigate('/subjects');
     } catch (error) {
       // Handle specific error cases
@@ -225,7 +228,7 @@ const SubjectCreate = () => {
                   <MenuItem value="" disabled>
                     {/* <em>Select Department</em> */}
                   </MenuItem>
-                  {departments.map(dept => (
+                  {DEPARTMENTS.map(dept => (
                     <MenuItem key={dept} value={dept}>
                       {dept}
                     </MenuItem>

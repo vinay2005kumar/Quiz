@@ -32,6 +32,8 @@ import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
 const SECTIONS = ['A', 'B', 'C', 'D', 'E'];
+const YEARS = [1, 2, 3, 4];
+const SEMESTERS = ['1', '2'];
 
 const QuizEdit = () => {
   const { id } = useParams();
@@ -40,6 +42,12 @@ const QuizEdit = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [subjects, setSubjects] = useState([]);
+  const [filters, setFilters] = useState({
+    year: '',
+    department: user?.department || '',
+    semester: ''
+  });
   const [quiz, setQuiz] = useState({
     title: '',
     subject: '',
@@ -54,19 +62,42 @@ const QuizEdit = () => {
         marks: 1
       }
     ],
-    allowedYears: [],
-    allowedDepartments: [],
-    allowedSections: []
+    allowedGroups: [],
+    allowedSections: [],
+    year: '',
+    semester: ''
   });
 
   useEffect(() => {
     fetchQuiz();
   }, [id]);
 
+  useEffect(() => {
+    if (filters.year && filters.semester) {
+      fetchSubjects();
+    }
+  }, [filters]);
+
+  const fetchSubjects = async () => {
+    try {
+      const response = await api.get('/api/subject', {
+        params: {
+          department: filters.department,
+          year: filters.year,
+          semester: filters.semester
+        }
+      });
+      setSubjects(Array.isArray(response) ? response : []);
+    } catch (error) {
+      console.error('Error fetching subjects:', error);
+      setError('Failed to load subjects');
+    }
+  };
+
   const fetchQuiz = async () => {
     try {
       console.log('Fetching quiz with ID:', id);
-      const response = await api.get(`/quiz/${id}`);
+      const response = await api.get(`/api/quiz/${id}`);
       console.log('Quiz data received:', response);
       
       // Helper function to safely format date
@@ -87,6 +118,10 @@ const QuizEdit = () => {
           return '';
         }
       };
+
+      // Extract year and sections from allowedGroups
+      const year = response.allowedGroups?.[0]?.year || '';
+      const sections = [...new Set(response.allowedGroups?.map(group => group.section) || [])];
       
       // Format dates for input fields with validation
       const formattedQuiz = {
@@ -101,13 +136,35 @@ const QuizEdit = () => {
           marks: 1
         }],
         // Ensure other arrays exist
-        allowedYears: response.allowedYears || [],
-        allowedDepartments: response.allowedDepartments || [],
-        allowedSections: response.allowedSections || []
+        allowedGroups: response.allowedGroups || [],
+        allowedSections: sections,
+        year: year,
+        semester: '1'  // Default to first semester if not specified
       };
       
+      // Update filters with quiz data
+      setFilters(prev => ({
+        ...prev,
+        year: year,
+        semester: '1',  // Default to first semester if not specified
+        department: response.allowedGroups?.[0]?.department || user?.department || ''
+      }));
+
       console.log('Formatted quiz data:', formattedQuiz);
       setQuiz(formattedQuiz);
+      
+      // Fetch subjects based on the quiz data
+      if (year) {
+        const subjectsResponse = await api.get('/api/subject', {
+          params: {
+            department: response.allowedGroups?.[0]?.department || user?.department,
+            year: year,
+            semester: '1'  // Default to first semester if not specified
+          }
+        });
+        setSubjects(Array.isArray(subjectsResponse) ? subjectsResponse : []);
+      }
+      
       setLoading(false);
     } catch (error) {
       console.error('Error fetching quiz:', error);
@@ -198,6 +255,21 @@ const QuizEdit = () => {
         return;
       }
 
+      if (!filters.year) {
+        setError('Year is required');
+        return;
+      }
+
+      if (!filters.semester) {
+        setError('Semester is required');
+        return;
+      }
+
+      if (!quiz.subject) {
+        setError('Subject is required');
+        return;
+      }
+
       // Validate dates
       const startTime = new Date(quiz.startTime);
       const endTime = new Date(quiz.endTime);
@@ -221,7 +293,9 @@ const QuizEdit = () => {
       const updatedQuiz = {
         ...quiz,
         startTime: startTime.toISOString(),
-        endTime: endTime.toISOString()
+        endTime: endTime.toISOString(),
+        year: filters.year,
+        semester: filters.semester
       };
 
       // Validate each question
@@ -245,7 +319,7 @@ const QuizEdit = () => {
       }
 
       console.log('Sending update request with data:', updatedQuiz);
-      const response = await api.put(`/quiz/${id}`, updatedQuiz);
+      const response = await api.put(`/api/quiz/${id}`, updatedQuiz);
       console.log('Update response:', response);
       
       setSuccess('Quiz updated successfully');
@@ -254,6 +328,27 @@ const QuizEdit = () => {
       console.error('Error updating quiz:', error);
       setError(error.response?.data?.message || error.response?.data?.error || 'Failed to update quiz');
     }
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters(prev => {
+      const newFilters = {
+        ...prev,
+        [name]: value
+      };
+      
+      if (name === 'year') {
+        newFilters.semester = '';
+      }
+      
+      setQuiz(prev => ({
+        ...prev,
+        subject: ''
+      }));
+      
+      return newFilters;
+    });
   };
 
   if (loading) {
@@ -296,6 +391,62 @@ const QuizEdit = () => {
               value={quiz.title}
               onChange={handleBasicDetailsChange}
             />
+          </Grid>
+
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth required>
+              <InputLabel>Year</InputLabel>
+              <Select
+                name="year"
+                value={filters.year}
+                onChange={handleFilterChange}
+                label="Year"
+              >
+                {YEARS.map(year => (
+                  <MenuItem key={year} value={year}>
+                    Year {year}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth required>
+              <InputLabel>Semester</InputLabel>
+              <Select
+                name="semester"
+                value={filters.semester}
+                onChange={handleFilterChange}
+                label="Semester"
+                disabled={!filters.year}
+              >
+                {SEMESTERS.map(sem => (
+                  <MenuItem key={sem} value={sem}>
+                    Semester {sem}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth required>
+              <InputLabel>Subject</InputLabel>
+              <Select
+                name="subject"
+                value={quiz.subject}
+                onChange={handleBasicDetailsChange}
+                label="Subject"
+                disabled={!filters.semester}
+              >
+                {subjects.map(subject => (
+                  <MenuItem key={subject._id} value={subject._id}>
+                    {subject.name} ({subject.code})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Grid>
 
           <Grid item xs={12} sm={6}>

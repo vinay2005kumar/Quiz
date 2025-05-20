@@ -56,11 +56,11 @@ const QuizStatistics = () => {
       setError('');
       
       // Fetch quiz details
-      const quizResponse = await api.get(`/quiz/${quizId}/details`);
+      const quizResponse = await api.get(`/api/quiz/${quizId}/details`);
       setQuizData(quizResponse);
 
       // Fetch quiz submissions
-      const submissionsResponse = await api.get(`/quiz/${quizId}/submissions`);
+      const submissionsResponse = await api.get(`/api/quiz/${quizId}/submissions`);
       const submissionsData = submissionsResponse.submissions || [];
       setSubmissions(submissionsData);
 

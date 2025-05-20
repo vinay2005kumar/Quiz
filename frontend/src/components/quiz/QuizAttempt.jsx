@@ -44,7 +44,7 @@ const QuizAttempt = () => {
         setError(null);
         
         // First fetch quiz details
-        const quizResponse = await api.get(`/quiz/${id}`);
+        const quizResponse = await api.get(`/api/quiz/${id}`);
         if (!isMounted) return;
         
         if (!quizResponse || !quizResponse.title) {
@@ -55,7 +55,7 @@ const QuizAttempt = () => {
 
         // Check for existing submission first
         try {
-          const existingSubmission = await api.get(`/quiz/${id}/submission`);
+          const existingSubmission = await api.get(`/api/quiz/${id}/submission`);
           if (!isMounted) return;
 
           if (existingSubmission.status === 'started') {
@@ -73,7 +73,7 @@ const QuizAttempt = () => {
         } catch (submissionError) {
           // No existing submission found, try to start new attempt
           try {
-            const newSubmission = await api.post(`/quiz/${id}/start`);
+            const newSubmission = await api.post(`/api/quiz/${id}/start`);
             if (!isMounted) return;
             
             setSubmission(newSubmission);
@@ -146,7 +146,7 @@ const QuizAttempt = () => {
         }))
       };
 
-      const response = await api.post(`/quiz/${id}/submit`, submissionData);
+      const response = await api.post(`/api/quiz/${id}/submit`, submissionData);
 
       setSubmissionResult(response);
       setShowScoreSummary(true);
@@ -201,12 +201,34 @@ const QuizAttempt = () => {
         />
 
         <Box sx={{ mb: 3 }}>
-          <Typography variant="body1" gutterBottom>
-            Subject: {quiz?.subject?.name || 'N/A'}
-          </Typography>
-          <Typography variant="body1" gutterBottom>
-            Total Marks: {quiz?.totalMarks || 0}
-          </Typography>
+          {quiz.type === 'academic' ? (
+            <>
+              <Typography variant="body1" gutterBottom>
+                Subject: {quiz?.subject?.name || 'N/A'}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                Total Marks: {quiz?.totalMarks || 0}
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="body1" gutterBottom>
+                Event: {quiz?.eventDetails?.name || 'N/A'}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                Organizer: {quiz?.eventDetails?.organizer || 'N/A'}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                Venue: {quiz?.eventDetails?.venue || 'N/A'}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                Description: {quiz?.eventDetails?.description || 'N/A'}
+              </Typography>
+              <Typography variant="body1" gutterBottom>
+                Total Marks: {quiz?.totalMarks || 0}
+              </Typography>
+            </>
+          )}
         </Box>
 
         {quiz.questions.map((question, index) => (

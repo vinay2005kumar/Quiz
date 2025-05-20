@@ -43,7 +43,8 @@ const QuizAuthorizedStudents = () => {
     submissionStatus: 'all',
     department: 'all',
     year: 'all',
-    section: 'all'
+    section: 'all',
+    semester: 'all'
   });
 
   const [sortConfig, setSortConfig] = useState({
@@ -62,8 +63,8 @@ const QuizAuthorizedStudents = () => {
 
       // Fetch quiz details and submissions in parallel
       const [quizResponse, submissionsResponse] = await Promise.all([
-        api.get(`/quiz/${id}`),
-        api.get(`/quiz/${id}/submissions`)
+        api.get(`api/quiz/${id}`),
+        api.get(`api/quiz/${id}/submissions`)
       ]);
 
       if (!quizResponse || !quizResponse.title) {
@@ -119,7 +120,8 @@ const QuizAuthorizedStudents = () => {
       submissionStatus: 'all',
       department: 'all',
       year: 'all',
-      section: 'all'
+      section: 'all',
+      semester: 'all'
     });
   };
 
@@ -200,9 +202,14 @@ const QuizAuthorizedStudents = () => {
         return false;
       }
 
+      // Semester filter
+      if (filters.semester !== 'all' && student.student.semester !== filters.semester) {
+        return false;
+      }
+
       return true;
     });
-  }, [students, filters, quiz]);
+  }, [students, filters, quiz?.totalMarks]);
 
   const sortedStudents = useMemo(() => {
     if (!filteredStudents || !Array.isArray(filteredStudents)) return [];
@@ -345,6 +352,26 @@ const QuizAuthorizedStudents = () => {
                 <MenuItem value="submitted">Submitted</MenuItem>
                 <MenuItem value="not-submitted">Not Submitted</MenuItem>
                 <MenuItem value="evaluated">Evaluated</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={4}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Semester</InputLabel>
+              <Select
+                value={filters.semester}
+                onChange={(e) => handleFilterChange('semester', e.target.value)}
+                label="Semester"
+              >
+                <MenuItem value="all">All Semesters</MenuItem>
+                <MenuItem value={1}>Semester 1</MenuItem>
+                <MenuItem value={2}>Semester 2</MenuItem>
+                <MenuItem value={3}>Semester 3</MenuItem>
+                <MenuItem value={4}>Semester 4</MenuItem>
+                <MenuItem value={5}>Semester 5</MenuItem>
+                <MenuItem value={6}>Semester 6</MenuItem>
+                <MenuItem value={7}>Semester 7</MenuItem>
+                <MenuItem value={8}>Semester 8</MenuItem>
               </Select>
             </FormControl>
           </Grid>

@@ -224,6 +224,62 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// Get all quizzes (admin)
+router.get('/all', auth, authorize('admin'), async (req, res) => {
+  try {
+    console.log('Fetching all quizzes for admin...');
+    console.log('User role:', req.user.role);
+    console.log('Query params:', req.query);
+
+    const query = {};
+    const { department, year, section, subject, faculty } = req.query;
+
+    // Add filters only if they are not 'all'
+    if (department && department !== 'all') {
+      query['allowedGroups.department'] = department;
+    }
+    if (year && year !== 'all') {
+      query['allowedGroups.year'] = parseInt(year);
+    }
+    if (section && section !== 'all') {
+      query['allowedGroups.section'] = section;
+    }
+    if (subject && subject !== 'all') {
+      query.subject = subject;
+    }
+    if (faculty && faculty !== 'all') {
+      query.createdBy = faculty;
+    }
+
+    console.log('MongoDB query:', query);
+
+    const quizzes = await Quiz.find(query)
+      .populate('subject', 'name code department')
+      .populate('createdBy', 'name email department')
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    // Transform the data to match the frontend expectations
+    const transformedQuizzes = quizzes.map(quiz => ({
+      ...quiz,
+      department: quiz.allowedGroups?.[0]?.department || '',
+      status: getQuizStatus(quiz),
+      submissionCount: 0 // You might want to fetch this from QuizSubmission model
+    }));
+    
+    console.log('Successfully fetched quizzes:', transformedQuizzes.length);
+    res.json(transformedQuizzes);
+  } catch (error) {
+    console.error('Error fetching all quizzes:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message,
+      stack: error.stack 
+    });
+  }
+});
+
 // Get quiz statistics (MUST be before ID-based routes)
 router.get('/statistics', auth, authorize('faculty', 'admin'), async (req, res) => {
   try {
@@ -848,44 +904,6 @@ router.get('/:id/submissions', auth, authorize('faculty', 'admin'), async (req, 
   }
 });
 
-// Get all quizzes (admin)
-router.get('/all', auth, authorize('admin'), async (req, res) => {
-  try {
-    console.log('Fetching all quizzes for admin...');
-    console.log('User role:', req.user.role);
-    console.log('Query params:', req.query);
-
-    const query = {};
-    const { department, year, section, subject, faculty } = req.query;
-
-    // Add filters only if they are not 'all'
-    if (department && department !== 'all') query['allowedDepartments'] = department;
-    if (year && year !== 'all') query['allowedYears'] = parseInt(year);
-    if (section && section !== 'all') query['allowedSections'] = section;
-    if (subject && subject !== 'all') query['subject'] = subject;
-    if (faculty && faculty !== 'all') query['createdBy'] = faculty;
-
-    console.log('MongoDB query:', query);
-
-    const quizzes = await Quiz.find(query)
-      .populate('subject', 'name code department')
-      .populate('createdBy', 'name email department')
-      .sort({ createdAt: -1 })
-      .lean();
-    
-    console.log('Successfully fetched quizzes:', quizzes.length);
-    res.json(quizzes || []);
-  } catch (error) {
-    console.error('Error fetching all quizzes:', error);
-    console.error('Stack trace:', error.stack);
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message,
-      stack: error.stack 
-    });
-  }
-});
-
 // Get all submissions (admin)
 router.get('/all-submissions', auth, authorize('admin'), async (req, res) => {
   try {
@@ -978,5 +996,29 @@ router.get('/:id/details', auth, authorize('faculty', 'admin'), async (req, res)
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+// Get event quizzes
+router.get('/event', auth, async (req, res) => {
+  try {
+    const quizzes = await Quiz.find({ type: 'event' })
+      .populate('createdBy', 'name email department')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json(quizzes);
+  } catch (error) {
+    console.error('Error fetching event quizzes:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Helper function to determine quiz status
+const getQuizStatus = (quiz) => {
+  const now = new Date();
+  if (!quiz.isActive) return 'inactive';
+  if (now < new Date(quiz.startTime)) return 'upcoming';
+  if (now > new Date(quiz.endTime)) return 'completed';
+  return 'active';
+};
 
 module.exports = router; 

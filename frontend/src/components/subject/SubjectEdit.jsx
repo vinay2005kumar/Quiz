@@ -18,6 +18,15 @@ import {
 import api from '../../config/axios';
 import { useAuth } from '../../context/AuthContext';
 
+const DEPARTMENTS = [
+  'Computer Science and Engineering',
+  'Electronics and Communication Engineering',
+  'Electrical and Electronics Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Information Technology'
+];
+
 const SubjectEdit = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -34,14 +43,6 @@ const SubjectEdit = () => {
     credits: '',
     description: ''
   });
-
-  const departments = [
-    'Computer Science',
-    'Electronics',
-    'Mechanical',
-    'Civil',
-    'Electrical'
-  ];
 
   const years = [
     { value: 1, label: 'First Year' },
@@ -250,7 +251,7 @@ const SubjectEdit = () => {
                   <MenuItem value="" disabled>
                     Select Department
                   </MenuItem>
-                  {departments.map(dept => (
+                  {DEPARTMENTS.map(dept => (
                     <MenuItem key={dept} value={dept}>
                       {dept}
                     </MenuItem>

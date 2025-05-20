@@ -44,14 +44,14 @@ const Dashboard = () => {
       try {
         setError('');
         // Get quizzes
-        const quizzesResponse = await api.get('/quiz');
+        const quizzesResponse = await api.get('/api/quiz');
         const quizzes = Array.isArray(quizzesResponse) ? quizzesResponse : [];
 
         // For students, fetch their submissions
         let submissions = [];
         if (user?.role === 'student' && quizzes.length > 0) {
           const submissionPromises = quizzes.map(quiz =>
-            api.get(`/quiz/${quiz._id}/submission`)
+            api.get(`/api/quiz/${quiz._id}/submission`)
               .then(res => {
                 if (!res) return null;
                 return {
@@ -64,14 +64,38 @@ const Dashboard = () => {
                 };
               })
               .catch((err) => {
-                if (err.response?.status !== 404) {
-                  console.error(`Error fetching submission for quiz ${quiz._id}:`, err);
+                // Silently handle 404 errors (no submission found)
+                if (err.response?.status === 404) {
+                  return {
+                    quizId: quiz._id,
+                    quiz: quiz,
+                    status: 'not_attempted',
+                    totalScore: 0
+                  };
                 }
+                // Log other errors but don't break the dashboard
+                console.error(`Error fetching submission for quiz ${quiz._id}:`, err);
                 return null;
               })
           );
-          submissions = (await Promise.all(submissionPromises))
-            .filter(sub => sub !== null && sub.status === 'evaluated');
+          
+          try {
+            submissions = (await Promise.all(submissionPromises))
+              .filter(sub => sub !== null)
+              .sort((a, b) => {
+                // Sort by status (evaluated first, then not_attempted)
+                if (a.status === 'evaluated' && b.status !== 'evaluated') return -1;
+                if (b.status === 'evaluated' && a.status !== 'evaluated') return 1;
+                // For evaluated submissions, sort by submitTime
+                if (a.status === 'evaluated' && b.status === 'evaluated') {
+                  return new Date(b.submitTime) - new Date(a.submitTime);
+                }
+                return 0;
+              });
+          } catch (error) {
+            console.error('Error processing submissions:', error);
+            submissions = [];
+          }
         }
 
         // Calculate statistics
@@ -82,11 +106,15 @@ const Dashboard = () => {
           activeQuizzes: quizzes.filter(quiz => 
             new Date(quiz.startTime) <= now && new Date(quiz.endTime) >= now
           ).length,
-          completedQuizzes: submissions.length,
-          averageScore: submissions.length > 0 
-            ? (submissions.reduce((sum, sub) => sum + (sub.totalScore || 0), 0) / submissions.length).toFixed(2)
+          completedQuizzes: submissions.filter(sub => sub.status === 'evaluated').length,
+          averageScore: submissions.filter(sub => sub.status === 'evaluated').length > 0 
+            ? (submissions
+                .filter(sub => sub.status === 'evaluated')
+                .reduce((sum, sub) => sum + (sub.totalScore || 0), 0) / 
+                submissions.filter(sub => sub.status === 'evaluated').length
+              ).toFixed(2)
             : 0,
-          submissions: submissions.sort((a, b) => new Date(b.submitTime) - new Date(a.submitTime))
+          submissions: submissions
         };
 
         setStats(stats);

@@ -1,28 +1,19 @@
 import axios from 'axios';
-import { config } from './config';
 
-// Create configured axios instance
 const api = axios.create({
-  baseURL: config.apiUrl,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000',
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Add request interceptor for authentication
+// Request interceptor for adding auth token
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-
-    // Add /api prefix to all requests that don't already have it
-    if (!config.url.startsWith('/api/')) {
-      config.url = `/api${config.url}`;
-    }
-
     return config;
   },
   (error) => {
@@ -44,9 +35,12 @@ api.interceptors.response.use(
 
     // Handle unauthorized errors
     if (error.response.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-      return Promise.reject(new Error('Session expired. Please login again.'));
+      // Only remove token if it's an actual auth error
+      const errorMessage = error.response.data?.message || '';
+      if (errorMessage.includes('expired') || errorMessage.includes('invalid') || errorMessage.includes('Invalid credentials')) {
+        localStorage.removeItem('token');
+      }
+      return Promise.reject(new Error(errorMessage || 'Session expired. Please login again.'));
     }
 
     // Handle other errors

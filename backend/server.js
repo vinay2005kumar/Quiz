@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
-
 // Load environment variables
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -16,7 +15,11 @@ app.use(express.json());
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://vinaybuttala:vinay123@cluster0.za6yh4j.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
-  .then(() => console.log('Connected to MongoDB'))
+  .then(() => {
+    console.log('Connected to MongoDB');
+    // Initialize admin account after successful connection
+    require('./routes/auth'); // This will execute the createAdminIfNotExists function
+  })
   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Verify environment variables
@@ -29,6 +32,13 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/quiz', require('./routes/quiz'));
 app.use('/api/subject', require('./routes/subject'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/settings', require('./routes/settings'));
+
+// Log all incoming requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
