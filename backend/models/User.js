@@ -21,7 +21,7 @@ const UserSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'faculty', 'student'],
+    enum: ['admin', 'faculty', 'student', 'event'],
     default: 'student'
   },
   department: {
@@ -80,53 +80,53 @@ const UserSchema = new mongoose.Schema({
   departments: {
     type: [String],
     required: function() {
-      return this.role === 'faculty';
+      return this.role === 'faculty' || this.role === 'event';
     },
     validate: {
       validator: function(v) {
-        if (this.role !== 'faculty') return true;
+        if (this.role !== 'faculty' && this.role !== 'event') return true;
         return Array.isArray(v) && v.length > 0;
       },
-      message: 'Faculty must have at least one department'
+      message: 'Must have at least one department'
     }
   },
   years: {
     type: [String],
     required: function() {
-      return this.role === 'faculty';
+      return this.role === 'faculty' || this.role === 'event';
     },
     validate: {
       validator: function(v) {
-        if (this.role !== 'faculty') return true;
+        if (this.role !== 'faculty' && this.role !== 'event') return true;
         return Array.isArray(v) && v.length > 0 && v.every(year => ['1', '2', '3', '4'].includes(year));
       },
-      message: 'Faculty must have at least one valid year (1-4)'
+      message: 'Must have at least one valid year (1-4)'
     }
   },
   semesters: {
     type: [String],
     required: function() {
-      return this.role === 'faculty';
+      return this.role === 'faculty' || this.role === 'event';
     },
     validate: {
       validator: function(v) {
-        if (this.role !== 'faculty') return true;
+        if (this.role !== 'faculty' && this.role !== 'event') return true;
         return Array.isArray(v) && v.length > 0 && v.every(sem => ['1', '2', '3', '4', '5', '6', '7', '8'].includes(sem));
       },
-      message: 'Faculty must have at least one valid semester (1-8)'
+      message: 'Must have at least one valid semester (1-8)'
     }
   },
   sections: {
     type: [String],
     required: function() {
-      return this.role === 'faculty';
+      return this.role === 'faculty' || this.role === 'event';
     },
     validate: {
       validator: function(v) {
-        if (this.role !== 'faculty') return true;
+        if (this.role !== 'faculty' && this.role !== 'event') return true;
         return Array.isArray(v) && v.length > 0 && v.every(section => /^[A-Z]$/.test(section));
       },
-      message: 'Faculty must have at least one valid section (A-Z)'
+      message: 'Must have at least one valid section (A-Z)'
     }
   },
   assignments: {
@@ -157,14 +157,14 @@ const UserSchema = new mongoose.Schema({
       }
     }],
     required: function() {
-      return this.role === 'faculty';
+      return this.role === 'faculty' || this.role === 'event';
     },
     validate: {
       validator: function(v) {
-        if (this.role !== 'faculty') return true;
+        if (this.role !== 'faculty' && this.role !== 'event') return true;
         return Array.isArray(v) && v.length > 0;
       },
-      message: 'Faculty must have at least one assignment'
+      message: 'Must have at least one assignment'
     }
   },
   isEventQuizAccount: {
@@ -175,6 +175,23 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+});
+
+// Pre-save hook to hash password
+UserSchema.pre('save', async function(next) {
+  if (this.isModified('password') && !this.password.startsWith('$2a$')) {
+    try {
+      // Store original password
+      this.originalPassword = this.password;
+      
+      // Hash password for authentication
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+    } catch (error) {
+      return next(error);
+    }
+  }
+  next();
 });
 
 // Compare password method

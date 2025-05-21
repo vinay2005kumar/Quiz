@@ -17,315 +17,205 @@ import api from '../../../config/axios';
 
 const QuizBasicDetails = ({ basicDetails, setBasicDetails, error }) => {
   const { user } = useAuth();
-  const [departments, setDepartments] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [subjects, setSubjects] = useState([]);
+  const [academicStructure, setAcademicStructure] = useState({});
   const [filters, setFilters] = useState({
-    departments: [],
-    years: [],
-    semesters: [],
+    department: '',
+    year: '',
+    semester: '',
     sections: []
   });
+  const [subjects, setSubjects] = useState([]);
+  const [availableYears, setAvailableYears] = useState([]);
+  const [availableSemesters, setAvailableSemesters] = useState([]);
+  const [availableSections, setAvailableSections] = useState([]);
 
-  // Debug logging for user permissions
+  // Fetch academic structure on component mount
   useEffect(() => {
-    console.log('User permissions:', {
-      departments: user?.departments || [],
-      years: user?.years || [],
-      semesters: user?.semesters || [],
-      sections: user?.sections || [],
-      subjects: user?.subjects || []
-    });
-  }, [user]);
+    const fetchAcademicStructure = async () => {
+      try {
+        const response = await api.get('/api/academic-details/faculty-structure');
+        console.log('Academic structure response:', response);
+        
+        if (!response || !response.data || typeof response.data !== 'object') {
+          console.error('Invalid academic structure response:', response);
+          throw new Error('Invalid response from server');
+        }
 
-  useEffect(() => {
-    console.log('User data:', {
-      departments: user?.departments,
-      years: user?.years,
-      semesters: user?.semesters,
-      sections: user?.sections,
-      assignments: user?.assignments
-    });
-    
-    if (user?.departments?.length > 0) {
-      fetchDepartments();
-      fetchSections();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (filters.departments.length > 0 && filters.years.length > 0 && filters.semesters.length > 0) {
-      fetchSubjects();
-    }
-  }, [filters.departments, filters.years, filters.semesters]);
-
-  // Add useEffect for auto-selecting departments
-  useEffect(() => {
-    if (departments.length === 1) {
-      setFilters(prev => ({
-        ...prev,
-        departments: [departments[0].name]
-      }));
-    }
-  }, [departments]);
-
-  // Add useEffect for auto-selecting years and semesters
-  useEffect(() => {
-    const uniqueYears = [...new Set(sections.map(s => s.year))];
-    const uniqueSemesters = [...new Set(sections.map(s => s.semester))];
-
-    if (uniqueYears.length === 1) {
-      setFilters(prev => ({
-        ...prev,
-        years: [uniqueYears[0]]
-      }));
-    }
-
-    if (uniqueSemesters.length === 1) {
-      setFilters(prev => ({
-        ...prev,
-        semesters: [uniqueSemesters[0]]
-      }));
-    }
-  }, [sections]);
-
-  // Add useEffect for auto-selecting subject
-  useEffect(() => {
-    if (subjects.length === 1) {
-      setBasicDetails(prev => ({
-        ...prev,
-        subject: subjects[0]._id
-      }));
-    }
-  }, [subjects, setBasicDetails]);
-
-  const fetchDepartments = async () => {
-    try {
-      const response = await api.get('/api/settings/departments');
-      console.log('Departments API response:', response);
-      
-      if (response?.departments) {
-        // Filter departments based on user's allowed departments
-        const allowedDepartments = response.departments.filter(
-          dept => user?.departments?.includes(dept.name)
-        );
-        console.log('Filtered departments:', allowedDepartments);
-        setDepartments(allowedDepartments);
-
-        // Auto-select department since user only has one
-        if (user?.departments?.length === 1) {
+        setAcademicStructure(response.data);
+        
+        // If user has only one department, auto-select it
+        if (user?.assignments?.length === 1) {
+          const assignment = user.assignments[0];
           setFilters(prev => ({
             ...prev,
-            departments: user.departments
+            department: assignment.department,
+            year: assignment.year,
+            semester: assignment.semester
           }));
         }
-      } else {
-        console.error('No departments found in response:', response);
-        setDepartments([]);
+      } catch (error) {
+        console.error('Error fetching academic structure:', error);
+        setAcademicStructure({});
       }
-    } catch (error) {
-      console.error('Error fetching departments:', error);
-      setDepartments([]);
-    }
-  };
+    };
 
-  const fetchSections = async () => {
-    try {
-      const response = await api.get('/api/settings/sections');
-      console.log('Sections API response:', response);
-      
-      if (response?.sections) {
-        // Transform the grouped sections data
-        const allSections = response.sections.map(group => ({
-          department: group.department,
-          year: group.year.toString(),
-          semester: group.semester.toString(),
-          sections: group.sections.map(s => s.toString())
-        }));
-        console.log('Transformed sections:', allSections);
+    fetchAcademicStructure();
+  }, [user]);
 
-        // Filter sections based on user's assignments
-        const allowedSections = allSections.filter(section => {
-          // Check if this combination exists in user's assignments
-          return user?.assignments?.some(assignment => 
-            assignment.department === section.department &&
-            assignment.year === section.year &&
-            assignment.semester === section.semester &&
-            section.sections.some(sec => assignment.sections.includes(sec))
-          );
-        });
+  // Update available years when department changes
+  useEffect(() => {
+    if (filters.department && user?.assignments) {
+      // Filter years based on faculty assignments
+      const years = [...new Set(
+        user.assignments
+          .filter(a => a.department === filters.department)
+          .map(a => a.year)
+      )].sort();
+      setAvailableYears(years);
 
-        console.log('Filtered sections:', allowedSections);
-        setSections(allowedSections);
-      } else {
-        console.error('No sections found in response:', response);
-        setSections([]);
+      // Reset year if current selection is not in available years
+      if (!years.includes(filters.year)) {
+        setFilters(prev => ({ ...prev, year: '', semester: '', sections: [] }));
       }
-    } catch (error) {
-      console.error('Error fetching sections:', error);
-      setSections([]);
+    } else {
+      setAvailableYears([]);
     }
-  };
+  }, [filters.department, user?.assignments]);
 
-  const fetchSubjects = async () => {
-    try {
-      console.log('Fetching subjects with filters:', filters);
-      // Fetch subjects for all selected combinations
-      const subjectPromises = filters.departments.flatMap(dept =>
-        filters.years.flatMap(year =>
-          filters.semesters.map(sem =>
-            api.get('/api/subjects', {
-              params: {
-                department: dept,
-                year: year,
-                semester: sem
-              }
-            })
+  // Update available semesters when year changes
+  useEffect(() => {
+    if (filters.department && filters.year && user?.assignments) {
+      // Filter semesters based on faculty assignments
+      const semesters = [...new Set(
+        user.assignments
+          .filter(a => 
+            a.department === filters.department && 
+            a.year === filters.year
           )
-        )
+          .map(a => a.semester)
+      )].sort();
+      setAvailableSemesters(semesters);
+
+      // Reset semester if current selection is not in available semesters
+      if (!semesters.includes(filters.semester)) {
+        setFilters(prev => ({ ...prev, semester: '', sections: [] }));
+      }
+    } else {
+      setAvailableSemesters([]);
+    }
+  }, [filters.department, filters.year, user?.assignments]);
+
+  // Update available sections when semester changes
+  useEffect(() => {
+    if (filters.department && filters.year && filters.semester && user?.assignments) {
+      // Find matching assignment
+      const assignment = user.assignments.find(a => 
+        a.department === filters.department && 
+        a.year === filters.year && 
+        a.semester === filters.semester
       );
 
-      const responses = await Promise.all(subjectPromises);
-      console.log('Subjects API responses:', responses);
-      
-      // Flatten and transform subject responses
-      const allSubjects = responses.flatMap(response => 
-        Array.isArray(response.data) ? response.data : []
-      );
+      // Get sections from assignment
+      const sections = assignment ? assignment.sections : [];
+      setAvailableSections(sections);
 
-      // Remove duplicates based on subject ID
-      const uniqueSubjects = Array.from(
-        new Map(allSubjects.map(item => [item._id, item])).values()
-      );
-      console.log('Unique subjects:', uniqueSubjects);
+      // Reset sections if none match
+      if (filters.sections.some(s => !sections.includes(s))) {
+        setFilters(prev => ({ ...prev, sections: [] }));
+      }
+    } else {
+      setAvailableSections([]);
+    }
+  }, [filters.department, filters.year, filters.semester, user?.assignments]);
 
-      // Filter subjects based on user's assignments
-      const allowedSubjects = uniqueSubjects.filter(subject => {
-        // Check if this subject matches any of the user's assignments
-        return user?.assignments?.some(assignment =>
-          assignment.department === subject.department &&
-          assignment.year.toString() === subject.year.toString() &&
-          assignment.semester.toString() === subject.semester.toString()
-        );
-      });
-
-      console.log('Filtered subjects:', allowedSubjects);
-      setSubjects(allowedSubjects);
-    } catch (error) {
-      console.error('Error fetching subjects:', error);
+  // Update subjects when filters change
+  useEffect(() => {
+    if (filters.department && filters.year && filters.semester) {
+      try {
+        // Get subjects from academic structure for the selected filters
+        const semesterData = academicStructure[filters.department]?.years[filters.year]?.semesters[filters.semester];
+        
+        if (semesterData?.subjects && Array.isArray(semesterData.subjects)) {
+          // Subjects are already in the correct format
+          setSubjects(semesterData.subjects);
+        } else {
+          setSubjects([]);
+        }
+      } catch (error) {
+        console.error('Error processing subjects:', error);
+        setSubjects([]);
+      }
+    } else {
       setSubjects([]);
     }
-  };
+  }, [filters, academicStructure]);
 
-  // Get available years based on user's assignments and selected departments
-  const getAvailableYears = () => {
-    if (!filters.departments.length) return [];
-    return user?.years || [];
-  };
-
-  // Get available semesters based on user's assignments and selected departments/years
-  const getAvailableSemesters = () => {
-    if (!filters.departments.length || !filters.years.length) return [];
-    return user?.semesters || [];
-  };
-
-  // Get available sections based on user's assignments and selected filters
-  const getAvailableSections = () => {
-    if (!filters.departments.length || !filters.years.length || !filters.semesters.length) return [];
-
-    // Get sections based on selected combinations from assignments
-    const availableSections = new Set();
-    
-    user?.assignments?.forEach(assignment => {
-      if (
-        filters.departments.includes(assignment.department) &&
-        filters.years.includes(assignment.year) &&
-        filters.semesters.includes(assignment.semester)
-      ) {
-        assignment.sections.forEach(section => availableSections.add(section));
-      }
-    });
-
-    return Array.from(availableSections).sort();
-  };
-
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
-    setFilters(prev => {
-      const newFilters = {
-        ...prev,
-        [name]: value
-      };
-      
-      // Reset dependent fields
-      if (name === 'departments') {
-        newFilters.years = [];
-        newFilters.semesters = [];
-        setBasicDetails(prev => ({
-          ...prev,
-          subject: '',
-          allowedGroups: []
-        }));
-      } else if (name === 'years') {
-        newFilters.semesters = [];
-        setBasicDetails(prev => ({
-          ...prev,
-          subject: '',
-          allowedGroups: []
-        }));
-      } else if (name === 'semesters') {
-        setBasicDetails(prev => ({
-          ...prev,
-          subject: '',
-          allowedGroups: []
-        }));
-      }
-      
-      return newFilters;
-    });
-  };
-
-  const handleBasicDetailsChange = (e) => {
-    const { name, value } = e.target;
+  // Handle basic details changes
+  const handleBasicDetailsChange = (event) => {
+    const { name, value } = event.target;
     setBasicDetails(prev => ({
       ...prev,
       [name]: value
     }));
   };
 
-  const handleSectionsChange = (event) => {
-    const selectedSections = event.target.value;
-    
-    // Create allowedGroups array based on selected values
-    const allowedGroups = [];
+  // Handle filter changes
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target;
+    setFilters(prev => {
+      const newFilters = {
+        ...prev,
+        [name]: value
+      };
 
-    // For each selected section, add all valid year-semester combinations from assignments
-    selectedSections.forEach(section => {
-      user?.assignments?.forEach(assignment => {
-        if (
-          filters.departments.includes(assignment.department) &&
-          filters.years.includes(assignment.year) &&
-          filters.semesters.includes(assignment.semester) &&
-          assignment.sections.includes(section)
-        ) {
-          allowedGroups.push({
-            department: assignment.department,
-            year: parseInt(assignment.year),
-            semester: parseInt(assignment.semester),
-            section: section
-          });
-        }
-      });
+      // Reset dependent fields
+      if (name === 'department') {
+        newFilters.year = '';
+        newFilters.semester = '';
+        newFilters.sections = [];
+      } else if (name === 'year') {
+        newFilters.semester = '';
+        newFilters.sections = [];
+      } else if (name === 'semester') {
+        newFilters.sections = [];
+      }
+
+      return newFilters;
     });
+  };
 
-    setBasicDetails(prev => ({
+  // Handle sections change
+  const handleSectionsChange = (event) => {
+    const {
+      target: { value },
+    } = event;
+    
+    // On autofill we get a stringified value.
+    const sections = typeof value === 'string' ? value.split(',') : value;
+    
+    setFilters(prev => ({
       ...prev,
-      allowedGroups: allowedGroups
+      sections
     }));
+
+    // Update allowed groups in basic details
+    if (filters.department && filters.year && sections.length > 0) {
+      const allowedGroups = sections.map(section => ({
+        department: filters.department,
+        year: parseInt(filters.year),
+        semester: parseInt(filters.semester),
+        section: section.trim()
+      }));
+      
+      setBasicDetails(prev => ({
+        ...prev,
+        allowedGroups
+      }));
+    }
   };
 
   return (
-    <Grid container spacing={3}>
+    <Grid container spacing={2}>
       {error && (
         <Grid item xs={12}>
           <Alert severity="error">{error}</Alert>
@@ -333,36 +223,17 @@ const QuizBasicDetails = ({ basicDetails, setBasicDetails, error }) => {
       )}
 
       <Grid item xs={12} sm={6}>
-        <TextField
-          fullWidth
-          label="Quiz Title"
-          name="title"
-          value={basicDetails.title}
-          onChange={handleBasicDetailsChange}
-          required
-        />
-      </Grid>
-
-      <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required>
+        <FormControl fullWidth>
           <InputLabel>Department</InputLabel>
           <Select
-            multiple
-            name="departments"
-            value={filters.departments}
+            name="department"
+            value={filters.department}
             onChange={handleFilterChange}
-            input={<OutlinedInput label="Department" />}
-            renderValue={(selected) => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((value) => (
-                  <Chip key={value} label={value} />
-                ))}
-              </Box>
-            )}
+            required
           >
-            {departments.map((dept) => (
-              <MenuItem key={dept.name} value={dept.name}>
-                {dept.name}
+            {user?.assignments && [...new Set(user.assignments.map(a => a.department))].map(dept => (
+              <MenuItem key={dept} value={dept}>
+                {dept}
               </MenuItem>
             ))}
           </Select>
@@ -370,24 +241,16 @@ const QuizBasicDetails = ({ basicDetails, setBasicDetails, error }) => {
       </Grid>
 
       <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required>
+        <FormControl fullWidth>
           <InputLabel>Year</InputLabel>
           <Select
-            multiple
-            name="years"
-            value={filters.years}
+            name="year"
+            value={filters.year}
             onChange={handleFilterChange}
-            input={<OutlinedInput label="Year" />}
-            renderValue={(selected) => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((value) => (
-                  <Chip key={value} label={`Year ${value}`} />
-                ))}
-              </Box>
-            )}
-            disabled={!filters.departments.length}
+            required
+            disabled={!filters.department}
           >
-            {getAvailableYears().map((year) => (
+            {availableYears.map(year => (
               <MenuItem key={year} value={year}>
                 Year {year}
               </MenuItem>
@@ -397,24 +260,16 @@ const QuizBasicDetails = ({ basicDetails, setBasicDetails, error }) => {
       </Grid>
 
       <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required>
+        <FormControl fullWidth>
           <InputLabel>Semester</InputLabel>
           <Select
-            multiple
-            name="semesters"
-            value={filters.semesters}
+            name="semester"
+            value={filters.semester}
             onChange={handleFilterChange}
-            input={<OutlinedInput label="Semester" />}
-            renderValue={(selected) => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((value) => (
-                  <Chip key={value} label={`Semester ${value}`} />
-                ))}
-              </Box>
-            )}
-            disabled={!filters.years.length}
+            required
+            disabled={!filters.year}
           >
-            {getAvailableSemesters().map((semester) => (
+            {availableSemesters.map(semester => (
               <MenuItem key={semester} value={semester}>
                 Semester {semester}
               </MenuItem>
@@ -424,112 +279,111 @@ const QuizBasicDetails = ({ basicDetails, setBasicDetails, error }) => {
       </Grid>
 
       <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required>
+        <FormControl fullWidth>
           <InputLabel>Subject</InputLabel>
           <Select
             name="subject"
-            value={basicDetails.subject}
+            value={basicDetails.subject || ''}
             onChange={handleBasicDetailsChange}
-            label="Subject"
-            disabled={!filters.semesters.length}
+            required
+            disabled={!filters.semester || subjects.length === 0}
           >
             {subjects.map(subject => (
-              <MenuItem key={subject._id} value={subject._id}>
-                {subject.name} ({subject.code})
+              <MenuItem key={subject.name} value={subject.name}>
+                {subject.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        {filters.semester && subjects.length === 0 && (
+          <Typography variant="caption" color="error" sx={{ mt: 1 }}>
+            No subjects available for selected semester
+          </Typography>
+        )}
+      </Grid>
+
+      <Grid item xs={12}>
+        <FormControl fullWidth>
+          <InputLabel>Sections</InputLabel>
+          <Select
+            multiple
+            name="sections"
+            value={filters.sections}
+            onChange={handleSectionsChange}
+            input={<OutlinedInput label="Sections" />}
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((value) => (
+                  <Chip key={value} label={value} />
+                ))}
+              </Box>
+            )}
+            required
+            disabled={!filters.semester}
+          >
+            {availableSections.map(section => (
+              <MenuItem key={section} value={section}>
+                Section {section}
               </MenuItem>
             ))}
           </Select>
         </FormControl>
       </Grid>
 
-      <Grid item xs={12} sm={6}>
-        <FormControl fullWidth required>
-          <InputLabel>Sections</InputLabel>
-          <Select
-            multiple
-            value={basicDetails.allowedGroups.map(g => g.section).filter((v, i, a) => a.indexOf(v) === i)}
-            onChange={handleSectionsChange}
-            input={<OutlinedInput label="Sections" />}
-            renderValue={(selected) => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((value) => {
-                  // Get all year-semester combinations for this section
-                  const combinations = basicDetails.allowedGroups
-                    .filter(g => g.section === value)
-                    .map(g => `${g.year}-${g.semester}`)
-                    .join(', ');
-                  
-                  return (
-                    <Chip 
-                      key={value} 
-                      label={`Section ${value} (${combinations})`}
-                    />
-                  );
-                })}
-              </Box>
-            )}
-            disabled={!filters.semesters.length}
-          >
-            {getAvailableSections().map((section) => {
-              // Show which year-semester combinations this section is available for
-              const availableCombos = user?.assignments
-                ?.filter(assignment =>
-                  filters.departments.includes(assignment.department) &&
-                  filters.years.includes(assignment.year) &&
-                  filters.semesters.includes(assignment.semester) &&
-                  assignment.sections.includes(section)
-                )
-                .map(assignment => `${assignment.year}-${assignment.semester}`)
-                .join(', ');
-
-              return (
-                <MenuItem key={section} value={section}>
-                  Section {section} ({availableCombos})
-                </MenuItem>
-              );
-            })}
-          </Select>
-        </FormControl>
-      </Grid>
-
-      <Grid item xs={12} sm={4}>
+      <Grid item xs={12}>
         <TextField
           fullWidth
-          type="number"
+          label="Quiz Title"
+          name="title"
+          value={basicDetails.title || ''}
+          onChange={handleBasicDetailsChange}
+          required
+        />
+      </Grid>
+
+      <Grid item xs={12} sm={6}>
+        <TextField
+          fullWidth
           label="Duration (minutes)"
           name="duration"
-          value={basicDetails.duration}
+          type="number"
+          value={basicDetails.duration || ''}
           onChange={handleBasicDetailsChange}
           required
           inputProps={{ min: 1 }}
         />
       </Grid>
 
-      <Grid item xs={12} sm={4}>
+      <Grid item xs={12} sm={6}>
         <TextField
           fullWidth
-          type="datetime-local"
           label="Start Time"
           name="startTime"
-          value={basicDetails.startTime}
+          type="datetime-local"
+          value={basicDetails.startTime || ''}
           onChange={handleBasicDetailsChange}
           required
-          InputLabelProps={{ shrink: true }}
+          InputLabelProps={{
+            shrink: true,
+          }}
         />
       </Grid>
 
-      <Grid item xs={12} sm={4}>
+      <Grid item xs={12} sm={6}>
         <TextField
           fullWidth
-          type="datetime-local"
           label="End Time"
           name="endTime"
-          value={basicDetails.endTime}
+          type="datetime-local"
+          value={basicDetails.endTime || ''}
           onChange={handleBasicDetailsChange}
           required
-          InputLabelProps={{ shrink: true }}
+          InputLabelProps={{
+            shrink: true,
+          }}
         />
       </Grid>
+
     </Grid>
   );
 };

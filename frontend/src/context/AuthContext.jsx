@@ -1,4 +1,4 @@
-import { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
+import { createContext, useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../config/axios';
 
@@ -13,176 +13,102 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
   const navigate = useNavigate();
-  const isCheckingAuth = useRef(false);
-  const authCheckTimeout = useRef(null);
 
-  const checkAuth = useCallback(async () => {
-    if (isCheckingAuth.current) return;
-    
-    try {
-      isCheckingAuth.current = true;
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setUser(null);
+          setLoading(false);
+          return;
+        }
 
-      // Don't check auth if we're on a public route
-      const currentPath = window.location.pathname;
-      const publicPaths = ['/', '/login', '/register', '/events'];
-      if (publicPaths.includes(currentPath)) {
-        setLoading(false);
-        return;
-      }
-
-      const response = await api.get('/api/auth/me');
-      if (response?.user) {
-        setUser(response.user);
-        setLoading(false);
-      } else {
-        localStorage.removeItem('token');
-        setUser(null);
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error('Auth check error:', error);
-      localStorage.removeItem('token');
-      setUser(null);
-      setLoading(false);
-      if (error.response?.status === 401) {
-        // Only redirect to login if not on a public route
-        const currentPath = window.location.pathname;
-        const publicPaths = ['/', '/login', '/register', '/events'];
-        if (!publicPaths.includes(currentPath)) {
+        // Make API call to verify token and get user data
+        const response = await api.get('/api/auth/me');
+        
+        // Handle both response structures (direct or nested in data)
+        const userData = response.data?.user || response.user;
+        
+        if (userData) {
+          setUser(userData);
+        } else {
+          // If no user data, clear token and user state
+          localStorage.removeItem('token');
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        // Only clear auth if it's an auth error (401/403)
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          localStorage.removeItem('token');
+          setUser(null);
           navigate('/login');
         }
-      }
-    } finally {
-      isCheckingAuth.current = false;
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      checkAuth();
-    } else {
-      setLoading(false);
-      const currentPath = window.location.pathname;
-      const publicPaths = ['/', '/login', '/register', '/events'];
-      if (!publicPaths.includes(currentPath)) {
-        navigate('/login');
-      }
-    }
-
-    return () => {
-      if (authCheckTimeout.current) {
-        clearTimeout(authCheckTimeout.current);
+        setAuthError(error.message);
+      } finally {
+        setLoading(false);
       }
     };
-  }, [checkAuth, navigate]);
+
+    checkAuth();
+  }, [navigate]);
 
   const login = async (email, password) => {
     try {
       setAuthError(null);
       setLoading(true);
       
-      const response = await api.post('/api/auth/login', { 
-        email, 
-        password 
+      // Make the API request
+      const response = await api.post('/api/auth/login', {
+        email,
+        password
       });
       
-      if (!response?.token || !response?.user) {
-        throw new Error('Invalid response from server');
-      }
-
-      // Store token and user data
-      localStorage.setItem('token', response.token);
-      setUser(response.user);
-      setLoading(false);
+      // Extract token and user data from response
+      const { token, user } = response.data || response;
       
-      // Enhanced role-based navigation with new paths
-      switch (response.user.role) {
-        case 'admin':
-          navigate('/admin/dashboard', { replace: true });
-          break;
-        case 'faculty':
-          navigate('/faculty/dashboard', { replace: true });
-          break;
-        case 'student':
-          navigate('/student/dashboard', { replace: true });
-          break;
-        default:
-          navigate('/login', { replace: true });
+      if (!token || !user) {
+        throw new Error('Invalid credentials');
       }
       
-      return { success: true };
+      // Store token and update user state
+      localStorage.setItem('token', token);
+      setUser(user);
+      
+      return { success: true, user };
     } catch (error) {
       console.error('Login error:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Login failed. Please check your credentials.';
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to login';
       setAuthError(errorMessage);
-      setLoading(false);
       return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
     }
   };
 
-  const register = async (userData) => {
-    try {
-      setAuthError(null);
-      setLoading(true);
-      
-      const response = await api.post('/api/auth/register', userData);
-      
-      if (!response?.token || !response?.user) {
-        throw new Error('Invalid response from server');
-      }
-
-      localStorage.setItem('token', response.token);
-      setUser(response.user);
-      setLoading(false);
-      
-      // Navigate based on role
-      if (response.user.role === 'admin') {
-        navigate('/admin/dashboard', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Registration error:', error);
-      const errorMessage = error.message || 'Registration failed. Please try again.';
-      setAuthError(errorMessage);
-      setLoading(false);
-      return { success: false, error: errorMessage };
-    }
-  };
-
-  const logout = useCallback(() => {
+  const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
-    setAuthError(null);
-    setLoading(false);
-    navigate('/login', { replace: true });
-  }, [navigate]);
+    navigate('/login');
+  };
 
+  // Provide auth state and methods to consuming components
   const value = {
     user,
     loading,
     authError,
     login,
     logout,
-    register,
-    checkAuth,
-    isAuthenticated: !!user
+    setAuthError
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-export default AuthContext;
+export default AuthProvider;

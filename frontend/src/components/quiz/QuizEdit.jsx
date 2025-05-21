@@ -73,21 +73,28 @@ const QuizEdit = () => {
   }, [id]);
 
   useEffect(() => {
-    if (filters.year && filters.semester) {
+    if (quiz.year && quiz.semester) {
       fetchSubjects();
     }
-  }, [filters]);
+  }, [quiz.year, quiz.semester, filters.department]);
+
+  useEffect(() => {
+    if (quiz.subject) {
+      setSubjects([{ name: quiz.subject, code: quiz.subject }]);
+    }
+  }, [quiz.subject]);
 
   const fetchSubjects = async () => {
     try {
-      const response = await api.get('/api/subject', {
+      const response = await api.get('/api/academic-details/subjects', {
         params: {
           department: filters.department,
-          year: filters.year,
-          semester: filters.semester
+          year: quiz.year,
+          semester: quiz.semester
         }
       });
-      setSubjects(Array.isArray(response) ? response : []);
+      const subjectsData = response.data || [];
+      setSubjects(Array.isArray(subjectsData) ? subjectsData : []);
     } catch (error) {
       console.error('Error fetching subjects:', error);
       setError('Failed to load subjects');
@@ -119,51 +126,32 @@ const QuizEdit = () => {
         }
       };
 
-      // Extract year and sections from allowedGroups
-      const year = response.allowedGroups?.[0]?.year || '';
-      const sections = [...new Set(response.allowedGroups?.map(group => group.section) || [])];
-      
       // Format dates for input fields with validation
       const formattedQuiz = {
-        ...response,  // The api instance already returns the data property
+        ...response,
         startTime: formatDate(response.startTime),
         endTime: formatDate(response.endTime),
-        // Ensure questions array exists with at least one default question
         questions: response.questions?.length ? response.questions : [{
           question: '',
           options: ['', '', '', ''],
           correctAnswer: 0,
           marks: 1
         }],
-        // Ensure other arrays exist
         allowedGroups: response.allowedGroups || [],
-        allowedSections: sections,
-        year: year,
-        semester: '1'  // Default to first semester if not specified
+        allowedSections: response.allowedSections || [],
+        year: response.year || '',
+        semester: response.semester || '',
+        subject: response.subject || ''
       };
+      
+      console.log('Formatted quiz data:', formattedQuiz);
+      setQuiz(formattedQuiz);
       
       // Update filters with quiz data
       setFilters(prev => ({
         ...prev,
-        year: year,
-        semester: '1',  // Default to first semester if not specified
-        department: response.allowedGroups?.[0]?.department || user?.department || ''
+        department: user?.department || ''
       }));
-
-      console.log('Formatted quiz data:', formattedQuiz);
-      setQuiz(formattedQuiz);
-      
-      // Fetch subjects based on the quiz data
-      if (year) {
-        const subjectsResponse = await api.get('/api/subject', {
-          params: {
-            department: response.allowedGroups?.[0]?.department || user?.department,
-            year: year,
-            semester: '1'  // Default to first semester if not specified
-          }
-        });
-        setSubjects(Array.isArray(subjectsResponse) ? subjectsResponse : []);
-      }
       
       setLoading(false);
     } catch (error) {
@@ -255,12 +243,12 @@ const QuizEdit = () => {
         return;
       }
 
-      if (!filters.year) {
+      if (!quiz.year) {
         setError('Year is required');
         return;
       }
 
-      if (!filters.semester) {
+      if (!quiz.semester) {
         setError('Semester is required');
         return;
       }
@@ -294,8 +282,8 @@ const QuizEdit = () => {
         ...quiz,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
-        year: filters.year,
-        semester: filters.semester
+        year: quiz.year,
+        semester: quiz.semester
       };
 
       // Validate each question
@@ -332,23 +320,13 @@ const QuizEdit = () => {
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
-    setFilters(prev => {
-      const newFilters = {
-        ...prev,
-        [name]: value
-      };
-      
-      if (name === 'year') {
-        newFilters.semester = '';
-      }
-      
-      setQuiz(prev => ({
-        ...prev,
-        subject: ''
-      }));
-      
-      return newFilters;
-    });
+    
+    setQuiz(prev => ({
+      ...prev,
+      [name]: value,
+      // Clear subject when year or semester changes
+      subject: name === 'year' || name === 'semester' ? '' : prev.subject
+    }));
   };
 
   if (loading) {
@@ -398,7 +376,7 @@ const QuizEdit = () => {
               <InputLabel>Year</InputLabel>
               <Select
                 name="year"
-                value={filters.year}
+                value={quiz.year}
                 onChange={handleFilterChange}
                 label="Year"
               >
@@ -416,10 +394,10 @@ const QuizEdit = () => {
               <InputLabel>Semester</InputLabel>
               <Select
                 name="semester"
-                value={filters.semester}
+                value={quiz.semester}
                 onChange={handleFilterChange}
                 label="Semester"
-                disabled={!filters.year}
+                disabled={!quiz.year}
               >
                 {SEMESTERS.map(sem => (
                   <MenuItem key={sem} value={sem}>
@@ -435,14 +413,14 @@ const QuizEdit = () => {
               <InputLabel>Subject</InputLabel>
               <Select
                 name="subject"
-                value={quiz.subject}
+                value={quiz.subject || ''}
                 onChange={handleBasicDetailsChange}
                 label="Subject"
-                disabled={!filters.semester}
+                disabled={!quiz.year || !quiz.semester}
               >
                 {subjects.map(subject => (
-                  <MenuItem key={subject._id} value={subject._id}>
-                    {subject.name} ({subject.code})
+                  <MenuItem key={subject.code} value={subject.name}>
+                    {subject.name}
                   </MenuItem>
                 ))}
               </Select>

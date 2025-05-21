@@ -15,7 +15,13 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
-  Divider
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  Card,
+  CardContent,
+  Grid
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -24,6 +30,7 @@ import ExcelQuizForm from './quiz-forms/ExcelQuizForm';
 import WordQuizForm from './quiz-forms/WordQuizForm';
 import ImageQuizForm from './quiz-forms/ImageQuizForm';
 import QuizBasicDetails from './quiz-forms/QuizBasicDetails';
+import api from '../../config/axios';
 
 const QuizCreate = () => {
   const navigate = useNavigate();
@@ -44,6 +51,16 @@ const QuizCreate = () => {
     allowedGroups: []
   });
 
+  // Questions state for manual quiz creation
+  const [questions, setQuestions] = useState([
+    {
+      question: '',
+      options: ['', '', '', ''],
+      correctAnswer: 0,
+      marks: 1
+    }
+  ]);
+
   const steps = ['Choose Input Method', 'Create Quiz', 'Review & Submit'];
 
   const handleInputMethodChange = (event, newValue) => {
@@ -56,6 +73,42 @@ const QuizCreate = () => {
 
   const handleBack = () => {
     setActiveStep((prevStep) => prevStep - 1);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Validate basic details
+      if (!basicDetails.title) throw new Error('Quiz title is required');
+      if (!basicDetails.subject) throw new Error('Subject is required');
+      if (!basicDetails.duration) throw new Error('Duration is required');
+      if (!basicDetails.startTime) throw new Error('Start time is required');
+      if (!basicDetails.endTime) throw new Error('End time is required');
+      if (basicDetails.allowedGroups.length === 0) throw new Error('Select at least one section');
+
+      const formData = {
+        ...basicDetails,
+        questions: questions.map(q => ({
+          question: q.question,
+          options: q.options,
+          correctAnswer: parseInt(q.correctAnswer),
+          marks: parseInt(q.marks)
+        })),
+        type: 'academic'
+      };
+
+      await api.post('/api/quiz', formData);
+      setSuccess(true);
+      setTimeout(() => {
+        navigate('/quizzes');
+      }, 2000);
+    } catch (error) {
+      setError(error.response?.data?.message || error.message || 'Failed to create quiz');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderInputMethodHelp = () => (
@@ -87,7 +140,14 @@ const QuizCreate = () => {
 
     switch (inputMethod) {
       case 0:
-        return <ManualQuizForm {...commonProps} />;
+        return (
+          <ManualQuizForm 
+            {...commonProps} 
+            questions={questions}
+            onQuestionsUpdate={setQuestions}
+            isReview={false}
+          />
+        );
       case 1:
         return <ExcelQuizForm {...commonProps} />;
       case 2:
@@ -99,33 +159,80 @@ const QuizCreate = () => {
     }
   };
 
-  const renderInputMethodSelector = () => (
-    <Box sx={{ width: '100%' }}>
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs
-          value={inputMethod}
-          onChange={handleInputMethodChange}
-          variant="fullWidth"
-          aria-label="quiz creation method tabs"
-        >
-          <Tab label="Manual Entry" />
-          <Tab label="Excel Upload" />
-          <Tab label="Word Upload" />
-          <Tab label="Image Upload" />
-        </Tabs>
-      </Box>
+  const renderQuizSummary = () => (
+    <Box>
+      <Typography variant="h5" gutterBottom>
+        Quiz Summary
+      </Typography>
+      
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Basic Details
+          </Typography>
+          <List>
+            <ListItem>
+              <ListItemText primary="Title" secondary={basicDetails.title} />
+            </ListItem>
+            <ListItem>
+              <ListItemText primary="Subject" secondary={basicDetails.subject} />
+            </ListItem>
+            <ListItem>
+              <ListItemText primary="Duration" secondary={`${basicDetails.duration} minutes`} />
+            </ListItem>
+            <ListItem>
+              <ListItemText 
+                primary="Start Time" 
+                secondary={new Date(basicDetails.startTime).toLocaleString()} 
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText 
+                primary="End Time" 
+                secondary={new Date(basicDetails.endTime).toLocaleString()} 
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemText 
+                primary="Allowed Groups" 
+                secondary={basicDetails.allowedGroups.map(group => 
+                  typeof group === 'object' ? `${group.department} - ${group.section} (Semester ${group.semester})` : group
+                ).join(', ')} 
+              />
+            </ListItem>
+          </List>
+        </CardContent>
+      </Card>
 
-      <Box sx={{ mb: 4 }}>
-        <QuizBasicDetails
-          basicDetails={basicDetails}
-          setBasicDetails={setBasicDetails}
-          error={error}
-        />
-      </Box>
-
-      <Divider sx={{ my: 3 }} />
-
-      {renderQuizForm()}
+      <Typography variant="h6" gutterBottom>
+        Questions ({questions.length})
+      </Typography>
+      
+      {questions.map((question, index) => (
+        <Card key={index} sx={{ mb: 2 }}>
+          <CardContent>
+            <Typography variant="subtitle1" gutterBottom>
+              Question {index + 1} ({question.marks} marks)
+            </Typography>
+            <Typography variant="body1" gutterBottom>
+              {question.question}
+            </Typography>
+            <Grid container spacing={2}>
+              {question.options.map((option, optIndex) => (
+                <Grid item xs={12} sm={6} key={optIndex}>
+                  <Typography
+                    variant="body2"
+                    color={optIndex === question.correctAnswer ? 'success.main' : 'text.primary'}
+                  >
+                    {String.fromCharCode(65 + optIndex)}) {option}
+                    {optIndex === question.correctAnswer && ' ✓'}
+                  </Typography>
+                </Grid>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+      ))}
     </Box>
   );
 
@@ -152,7 +259,7 @@ const QuizCreate = () => {
 
         {success && (
           <Alert severity="success" sx={{ mb: 2 }}>
-            Quiz created successfully!
+            Quiz created successfully! Redirecting to quizzes page...
           </Alert>
         )}
 
@@ -172,8 +279,38 @@ const QuizCreate = () => {
           </Box>
         ) : (
           <>
-            {activeStep === 0 && renderInputMethodSelector()}
-            {/* Add other steps as needed */}
+            {activeStep === 0 && (
+              <Box sx={{ width: '100%' }}>
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                  <Tabs
+                    value={inputMethod}
+                    onChange={handleInputMethodChange}
+                    variant="fullWidth"
+                    aria-label="quiz creation method tabs"
+                  >
+                    <Tab label="Manual Entry" />
+                    <Tab label="Excel Upload" />
+                    <Tab label="Word Upload" />
+                    <Tab label="Image Upload" />
+                  </Tabs>
+                </Box>
+
+                <Box sx={{ mb: 4 }}>
+                  <QuizBasicDetails
+                    basicDetails={basicDetails}
+                    setBasicDetails={setBasicDetails}
+                    error={error}
+                  />
+                </Box>
+
+                <Divider sx={{ my: 3 }} />
+
+                {renderQuizForm()}
+              </Box>
+            )}
+
+            {activeStep === 1 && renderQuizForm()}
+            {activeStep === 2 && renderQuizSummary()}
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
               <Button
@@ -183,13 +320,22 @@ const QuizCreate = () => {
               >
                 Back
               </Button>
-              <Button
-                variant="contained"
-                onClick={handleNext}
-                disabled={activeStep === steps.length - 1}
-              >
-                {activeStep === steps.length - 2 ? 'Submit' : 'Next'}
-              </Button>
+              {activeStep === steps.length - 1 ? (
+                <Button
+                  variant="contained"
+                  onClick={handleSubmit}
+                  disabled={loading}
+                >
+                  {loading ? <CircularProgress size={24} /> : 'Create Quiz'}
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  onClick={handleNext}
+                >
+                  Next
+                </Button>
+              )}
             </Box>
           </>
         )}

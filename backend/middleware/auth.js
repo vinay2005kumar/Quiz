@@ -121,4 +121,15 @@ const isAdmin = async (req, res, next) => {
   }
 };
 
-module.exports = { auth, authorize, isAdmin }; 
+const isEventAdmin = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin' && !req.user.isEventQuizAccount) {
+      return res.status(403).json({ message: 'Access denied. Event admin only.' });
+    }
+    next();
+  } catch (error) {
+    res.status(500).json({ message: 'Server error during event admin check' });
+  }
+};
+
+module.exports = { auth, authorize, isAdmin, isEventAdmin }; 

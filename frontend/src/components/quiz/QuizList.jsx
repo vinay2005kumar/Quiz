@@ -99,6 +99,12 @@ const QuizList = () => {
     yearWiseStats: {}
   });
 
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
+  const [filter, setFilter] = useState('all');
+
   useEffect(() => {
     fetchQuizzes();
     fetchDepartments();
@@ -183,28 +189,23 @@ const QuizList = () => {
 
   const fetchDepartments = async () => {
     try {
-      const response = await api.get('/api/settings/departments');
-      if (response && Array.isArray(response.departments)) {
-        setDepartments(response.departments);
-      } else {
-        console.error('Invalid departments data:', response);
-        setDepartments([]);
-      }
+      const response = await api.get('/api/academic-details/faculty-structure');
+      const structure = response.data;
+      const departments = Object.keys(structure);
+      setDepartments(departments);
     } catch (error) {
       console.error('Error fetching departments:', error);
-      setDepartments([]);
     }
   };
 
   const fetchSections = async () => {
     try {
-      const response = await api.get('/api/settings/sections');
-      if (response && Array.isArray(response.sections)) {
-        setSections(response.sections);
-      } else {
-        console.error('Invalid sections data:', response);
+      if (!selectedDepartment || !selectedYear) {
         setSections([]);
+        return;
       }
+      const response = await api.get(`/api/academic-details/sections?department=${selectedDepartment}&year=${selectedYear}&semester=1`);
+      setSections(response.data);
     } catch (error) {
       console.error('Error fetching sections:', error);
       setSections([]);
@@ -378,18 +379,28 @@ const QuizList = () => {
 
   const handleDeleteClick = (quiz) => {
     setQuizToDelete(quiz);
-    setShowDeleteConfirm(true);
+    setDeleteDialog(true);
   };
 
   const handleDeleteConfirm = async () => {
     try {
-      await api.delete(`/quiz/${quizToDelete._id}`);
-      setShowDeleteConfirm(false);
+      setLoading(true);
+      await api.delete(`/api/quiz/${quizToDelete._id}`);
+      setDeleteDialog(false);
       setQuizToDelete(null);
-      fetchQuizzes();
+      // Update the quizzes state instead of reloading
+      setQuizzes(prevQuizzes => prevQuizzes.filter(quiz => quiz._id !== quizToDelete._id));
+      setError('');
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to delete quiz');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialog(false);
+    setQuizToDelete(null);
   };
 
   const getFilteredQuizzes = () => {
@@ -412,6 +423,20 @@ const QuizList = () => {
     }));
   };
 
+  const handleDepartmentChange = (event) => {
+    setSelectedDepartment(event.target.value);
+    setSelectedSection(''); // Reset section when department changes
+  };
+
+  const handleYearChange = (event) => {
+    setSelectedYear(event.target.value);
+    setSelectedSection(''); // Reset section when year changes
+  };
+
+  const handleSectionChange = (event) => {
+    setSelectedSection(event.target.value);
+  };
+
   const renderFilters = () => (
     <Paper sx={{ p: 2, mb: 2 }}>
       <Box sx={{ mb: 2 }}>
@@ -424,14 +449,14 @@ const QuizList = () => {
           <FormControl fullWidth size="small">
             <InputLabel>Department</InputLabel>
             <Select
-              value={filters.department}
-              onChange={(e) => setFilters({ ...filters, department: e.target.value, year: '', semester: '', section: '' })}
+              value={selectedDepartment}
+              onChange={handleDepartmentChange}
               label="Department"
             >
               <MenuItem value="">All</MenuItem>
               {departments.map((dept) => (
-                <MenuItem key={dept._id} value={dept.name}>
-                  {dept.name}
+                <MenuItem key={dept} value={dept}>
+                  {dept}
                 </MenuItem>
               ))}
             </Select>
@@ -441,10 +466,10 @@ const QuizList = () => {
           <FormControl fullWidth size="small">
             <InputLabel>Year</InputLabel>
             <Select
-              value={filters.year}
-              onChange={(e) => setFilters({ ...filters, year: e.target.value, semester: '', section: '' })}
+              value={selectedYear}
+              onChange={handleYearChange}
               label="Year"
-              disabled={!filters.department}
+              disabled={!selectedDepartment}
             >
               <MenuItem value="">All</MenuItem>
               {[1, 2, 3, 4].map(year => (
@@ -455,31 +480,15 @@ const QuizList = () => {
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
           <FormControl fullWidth size="small">
-            <InputLabel>Semester</InputLabel>
-            <Select
-              value={filters.semester}
-              onChange={(e) => setFilters({ ...filters, semester: e.target.value, section: '' })}
-              label="Semester"
-              disabled={!filters.year}
-            >
-              <MenuItem value="">All</MenuItem>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
-                <MenuItem key={sem} value={sem}>Semester {sem}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} sm={6} md={2}>
-          <FormControl fullWidth size="small">
             <InputLabel>Section</InputLabel>
             <Select
-              value={filters.section}
-              onChange={(e) => setFilters({ ...filters, section: e.target.value })}
+              value={selectedSection}
+              onChange={handleSectionChange}
               label="Section"
-              disabled={!filters.department || !filters.year || !filters.semester}
+              disabled={!selectedYear}
             >
               <MenuItem value="">All</MenuItem>
-              {getAvailableSections(filters.department, filters.year, filters.semester).map(section => (
+              {sections.map((section) => (
                 <MenuItem key={section} value={section}>
                   Section {section}
                 </MenuItem>
@@ -537,8 +546,7 @@ const QuizList = () => {
               subject: '',
               status: ''
             })}
-            disabled={!filters.department && !filters.year && !filters.semester && 
-              !filters.section && !filters.subject && !filters.status}
+            disabled={!selectedDepartment && !selectedYear && !selectedSection && !filters.subject && !filters.status}
           >
             Clear Filters
           </Button>
@@ -821,16 +829,18 @@ const QuizList = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Year</InputLabel>
+                  <InputLabel>Department</InputLabel>
                   <Select
-                    name="year"
-                    value={filters.year}
-                    onChange={(e) => handleFilterChange(e)}
-                    label="Year"
+                    name="department"
+                    value={selectedDepartment}
+                    onChange={handleDepartmentChange}
+                    label="Department"
                   >
-                    <MenuItem value="all">All Years</MenuItem>
-                    {[1, 2, 3, 4].map(year => (
-                      <MenuItem key={year} value={year}>Year {year}</MenuItem>
+                    <MenuItem value="">All</MenuItem>
+                    {user?.assignments && [...new Set(user.assignments.map(a => a.department))].map(dept => (
+                      <MenuItem key={dept} value={dept}>
+                        {dept}
+                      </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -838,22 +848,22 @@ const QuizList = () => {
 
               <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Semester</InputLabel>
+                  <InputLabel>Year</InputLabel>
                   <Select
-                    name="semester"
-                    value={filters.semester}
-                    onChange={(e) => handleFilterChange(e)}
-                    label="Semester"
+                    name="year"
+                    value={selectedYear}
+                    onChange={handleYearChange}
+                    label="Year"
+                    disabled={!selectedDepartment}
                   >
-                    <MenuItem value="all">All Semesters</MenuItem>
-                    <MenuItem value={1}>Semester 1</MenuItem>
-                    <MenuItem value={2}>Semester 2</MenuItem>
-                    <MenuItem value={3}>Semester 3</MenuItem>
-                    <MenuItem value={4}>Semester 4</MenuItem>
-                    <MenuItem value={5}>Semester 5</MenuItem>
-                    <MenuItem value={6}>Semester 6</MenuItem>
-                    <MenuItem value={7}>Semester 7</MenuItem>
-                    <MenuItem value={8}>Semester 8</MenuItem>
+                    <MenuItem value="">All</MenuItem>
+                    {user?.assignments && [...new Set(
+                      user.assignments
+                        .filter(a => !selectedDepartment || a.department === selectedDepartment)
+                        .map(a => a.year)
+                    )].sort().map(year => (
+                      <MenuItem key={year} value={year}>Year {year}</MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>
@@ -863,12 +873,20 @@ const QuizList = () => {
                   <InputLabel>Section</InputLabel>
                   <Select
                     name="section"
-                    value={filters.section}
-                    onChange={(e) => handleFilterChange(e)}
+                    value={selectedSection}
+                    onChange={handleSectionChange}
                     label="Section"
+                    disabled={!selectedYear}
                   >
-                    <MenuItem value="all">All Sections</MenuItem>
-                    {['A', 'B', 'C', 'D', 'E'].map(section => (
+                    <MenuItem value="">All</MenuItem>
+                    {user?.assignments && [...new Set(
+                      user.assignments
+                        .filter(a => 
+                          (!selectedDepartment || a.department === selectedDepartment) &&
+                          (!selectedYear || a.year === selectedYear)
+                        )
+                        .map(a => a.sections)
+                    )].sort().map(section => (
                       <MenuItem key={section} value={section}>Section {section}</MenuItem>
                     ))}
                   </Select>
@@ -884,7 +902,7 @@ const QuizList = () => {
                     onChange={(e) => handleFilterChange(e)}
                     label="Status"
                   >
-                    <MenuItem value="all">All Status</MenuItem>
+                    <MenuItem value="">All</MenuItem>
                     <MenuItem value="active">Active</MenuItem>
                     <MenuItem value="upcoming">Upcoming</MenuItem>
                     <MenuItem value="completed">Completed</MenuItem>
@@ -898,16 +916,15 @@ const QuizList = () => {
                   variant="outlined"
                   onClick={() => {
                     setFilters({
-                      year: 'all',
-                      department: user.department, // Keep faculty's department
-                      section: 'all',
-                      subject: 'all',
-                      status: 'all',
-                      faculty: 'all',
-                      semester: 'all'  // Add semester to reset
+                      department: '',
+                      year: '',
+                      semester: '',
+                      section: '',
+                      subject: '',
+                      status: ''
                     });
                   }}
-                  disabled={Object.values(filters).every(v => v === 'all')}
+                  disabled={!selectedDepartment && !selectedYear && !selectedSection && !filters.status}
                 >
                   Clear Filters
                 </Button>
@@ -974,7 +991,7 @@ const QuizList = () => {
                     
                     <Stack spacing={1.5}>
                       <Typography color="text.secondary">
-                        Subject: {quiz.subject.name}
+                        Subject: {quiz.subject?.name || quiz.subject || 'N/A'}
                       </Typography>
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1052,7 +1069,7 @@ const QuizList = () => {
                         <Button
                           variant="outlined"
                           startIcon={<EditIcon />}
-                          onClick={() => navigate(`/quizzes/${quiz._id}/edit`)}
+                          onClick={() => navigate(`/faculty/quizzes/${quiz._id}/edit`)}
                           fullWidth
                         >
                           Edit
@@ -1070,10 +1087,10 @@ const QuizList = () => {
                           variant="outlined"
                           color="primary"
                           startIcon={<AssessmentIcon />}
-                          onClick={() => navigate(`/quizzes/${quiz._id}/submissions`)}
+                          onClick={() => navigate(`/faculty/quizzes/${quiz._id}/submissions`)}
                           fullWidth
                         >
-                          View Details
+                          Results
                         </Button>
                       </Stack>
                     ) : (
@@ -1096,17 +1113,15 @@ const QuizList = () => {
         )}
       </Grid>
 
-      <Dialog
-        open={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-      >
-        <DialogTitle>Confirm Delete</DialogTitle>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog} onClose={handleDeleteCancel}>
+        <DialogTitle>Delete Quiz</DialogTitle>
         <DialogContent>
-          Are you sure you want to delete this quiz?
+          Are you sure you want to delete the quiz "{quizToDelete?.title}"? This action cannot be undone.
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error">
             Delete
           </Button>
         </DialogActions>

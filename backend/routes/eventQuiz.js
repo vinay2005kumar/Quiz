@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const EventQuiz = require('../models/EventQuiz');
 const { auth, isEventAdmin } = require('../middleware/auth');
+const EventQuizAccount = require('../models/EventQuizAccount');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 // Create a new event quiz
 router.post('/', auth, isEventAdmin, async (req, res) => {
@@ -146,6 +148,109 @@ router.patch('/:id/status', auth, isEventAdmin, async (req, res) => {
     res.json(quiz);
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+});
+
+// Bulk create event quiz accounts from Excel
+router.post('/accounts/bulk', auth, async (req, res) => {
+  try {
+    const { accounts } = req.body;
+    
+    if (!Array.isArray(accounts)) {
+      return res.status(400).json({ message: 'Invalid data format. Expected an array of accounts.' });
+    }
+
+    // Validate all accounts before creating any
+    const errors = [];
+    const emailSet = new Set();
+
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      
+      // Check required fields
+      if (!account.name) errors.push(`Row ${i + 1}: Name is required`);
+      if (!account.email) errors.push(`Row ${i + 1}: Email is required`);
+      if (!account.eventType) errors.push(`Row ${i + 1}: Event type is required`);
+      if (account.eventType === 'department' && !account.department) {
+        errors.push(`Row ${i + 1}: Department is required for department events`);
+      }
+
+      // Check for duplicate emails within the upload
+      if (emailSet.has(account.email.toLowerCase())) {
+        errors.push(`Row ${i + 1}: Duplicate email address ${account.email}`);
+      }
+      emailSet.add(account.email.toLowerCase());
+
+      // Check for existing emails in database
+      const existingAccount = await EventQuizAccount.findOne({ email: account.email.toLowerCase() });
+      if (existingAccount) {
+        errors.push(`Row ${i + 1}: Email ${account.email} already exists`);
+      }
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors
+      });
+    }
+
+    // Process accounts with proper password handling
+    const processedAccounts = accounts.map(account => {
+      // Generate random password if not provided
+      const password = account.password || Math.random().toString(36).slice(-8);
+      
+      return {
+        ...account,
+        password,
+        originalPassword: encrypt(password), // Store encrypted original password
+        createdBy: req.user.userId,
+        isActive: true
+      };
+    });
+
+    // Create all accounts
+    const createdAccounts = await EventQuizAccount.create(processedAccounts);
+
+    // Return success response with account details (excluding sensitive data)
+    const sanitizedAccounts = createdAccounts.map(account => ({
+      _id: account._id,
+      name: account.name,
+      email: account.email,
+      eventType: account.eventType,
+      department: account.department,
+      password: decrypt(account.originalPassword) // Include original password in response
+    }));
+
+    res.status(201).json({
+      message: `Successfully created ${createdAccounts.length} accounts`,
+      accounts: sanitizedAccounts
+    });
+
+  } catch (error) {
+    console.error('Error in bulk account creation:', error);
+    res.status(500).json({
+      message: 'Failed to create accounts',
+      error: error.message
+    });
+  }
+});
+
+// Get password for a specific account
+router.get('/accounts/passwords/:id', auth, async (req, res) => {
+  try {
+    const account = await EventQuizAccount.findById(req.params.id);
+    if (!account) {
+      return res.status(404).json({ message: 'Account not found' });
+    }
+
+    // Decrypt the original password
+    const password = account.originalPassword ? decrypt(account.originalPassword) : null;
+    
+    res.json({ password });
+  } catch (error) {
+    console.error('Error fetching password:', error);
+    res.status(500).json({ message: 'Failed to fetch password' });
   }
 });
 

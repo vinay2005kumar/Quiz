@@ -47,11 +47,11 @@ const quizSchema = new mongoose.Schema({
     default: 'academic'
   },
   subject: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Subject',
+    type: String,
     required: function() {
       return this.type === 'academic';
-    }
+    },
+    trim: true
   },
   eventDetails: {
     name: {

@@ -43,6 +43,8 @@ import {
 } from '@mui/icons-material';
 import api from '../../config/axios';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const YEARS = ['1', '2', '3', '4'];
 const SEMESTERS = ['1', '2', '3', '4', '5', '6', '7', '8'];
@@ -84,6 +86,10 @@ const StudentAccounts = () => {
   const [uploadPreview, setUploadPreview] = useState([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [academicDetails, setAcademicDetails] = useState([]);
+  const [years, setYears] = useState([]);
+  const [availableSemesters, setAvailableSemesters] = useState([]);
+  const [availableSections, setAvailableSections] = useState([]);
 
   const fetchStudents = async () => {
     try {
@@ -103,7 +109,7 @@ const StudentAccounts = () => {
 
       setStudents(response.accounts);
       setLoading(false);
-    } catch (error) { 
+    } catch (error) {
       console.error('Error fetching students:', error);
       console.error('Error details:', {
         status: error.response?.status,
@@ -131,46 +137,85 @@ const StudentAccounts = () => {
     }
   };
 
-  const fetchDepartments = async () => {
+  const fetchAcademicDetails = async () => {
     try {
-      const response = await api.get('/api/settings/departments');
-      console.log('Departments response:', response);
-      if (response && Array.isArray(response.departments)) {
-        setDepartments(response.departments);
+      const response = await api.get('/api/academic-details');
+      console.log('Academic details response:', response);
+      
+      if (response && Array.isArray(response)) {
+        setAcademicDetails(response);
+        
+        // Extract unique departments
+        const uniqueDepartments = [...new Set(response.map(detail => detail.department))];
+        setDepartments(uniqueDepartments);
       } else {
-        console.error('Invalid departments data:', response);
+        console.error('Invalid academic details data:', response);
+        setAcademicDetails([]);
         setDepartments([]);
       }
     } catch (error) {
-      console.error('Error fetching departments:', error);
-      setError('Failed to fetch departments');
+      console.error('Error fetching academic details:', error);
+      setError('Failed to fetch academic details');
+      setAcademicDetails([]);
       setDepartments([]);
     }
   };
 
-  const fetchSections = async () => {
-    try {
-      const response = await api.get('/api/settings/sections');
-      console.log('Raw sections response:', response);
+  // Update available years when department changes
+  useEffect(() => {
+    if (filters.department) {
+      const departmentYears = [...new Set(
+        academicDetails
+          .filter(detail => detail.department === filters.department)
+          .map(detail => detail.year)
+      )].sort((a, b) => a - b);
       
-      if (response && response.sections) {
-        console.log('Setting sections data:', response.sections);
-        setSections(response.sections);
-      } else {
-        console.error('Invalid sections data:', response);
-        setSections([]);
-      }
-    } catch (error) {
-      console.error('Error fetching sections:', error);
-      setError('Failed to fetch sections');
-      setSections([]);
+      console.log('Available years for department:', departmentYears);
+      setYears(departmentYears);
+    } else {
+      setYears([]);
     }
-  };
+  }, [filters.department, academicDetails]);
+
+  // Update available semesters when year changes
+  useEffect(() => {
+    if (filters.department && filters.year) {
+      const availableSems = [...new Set(
+        academicDetails
+          .filter(detail => 
+            detail.department === filters.department && 
+            detail.year === parseInt(filters.year)
+          )
+          .map(detail => detail.semester)
+      )].sort((a, b) => a - b);
+      
+      console.log('Available semesters:', availableSems);
+      setAvailableSemesters(availableSems);
+    } else {
+      setAvailableSemesters([]);
+    }
+  }, [filters.department, filters.year, academicDetails]);
+
+  // Update available sections when semester changes
+  useEffect(() => {
+    if (filters.department && filters.year && filters.semester) {
+      const detail = academicDetails.find(d => 
+        d.department === filters.department && 
+        d.year === parseInt(filters.year) && 
+        d.semester === parseInt(filters.semester)
+      );
+
+      const sections = detail?.sections ? detail.sections.split(',').map(s => s.trim()) : [];
+      console.log('Available sections:', sections);
+      setAvailableSections(sections);
+    } else {
+      setAvailableSections([]);
+    }
+  }, [filters.department, filters.year, filters.semester, academicDetails]);
 
   useEffect(() => {
+    fetchAcademicDetails();
     fetchStudents();
-    fetchDepartments();
-    fetchSections();
   }, []);
 
   // Add a retry button component
@@ -318,52 +363,41 @@ const StudentAccounts = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     
-    // Special handling for year selection
-    if (name === 'year') {
-      setFormData(prev => ({
-        ...prev,
-        year: value,
-        semester: '', // Reset semester when year changes
-        section: ''  // Reset section when year changes
-      }));
-      return;
-    }
+    setFormData(prev => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset dependent fields
+      if (name === 'department') {
+        newData.year = '';
+        newData.semester = '';
+        newData.section = '';
+      } else if (name === 'year') {
+        newData.semester = '';
+        newData.section = '';
+      } else if (name === 'semester') {
+        newData.section = '';
+      }
+      
+      return newData;
+    });
 
-    // Special handling for semester selection
-    if (name === 'semester') {
-      setFormData(prev => ({
-        ...prev,
-        semester: value,
-        section: '' // Reset section when semester changes
-      }));
-      return;
-    }
-
-    // Special handling for department selection
-    if (name === 'department') {
-      setFormData(prev => ({
-        ...prev,
-        department: value,
-        year: '', // Reset year when department changes
-        semester: '', // Reset semester when department changes
-        section: '' // Reset section when department changes
-      }));
-      return;
-    }
-
-    // Special handling for admission number
-    if (name === 'admissionNumber') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value.toLowerCase()
-      }));
-      return;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    // Also update filters to keep them in sync
+    setFilters(prev => {
+      const newFilters = { ...prev, [name]: value };
+      
+      if (name === 'department') {
+        newFilters.year = '';
+        newFilters.semester = '';
+        newFilters.section = '';
+      } else if (name === 'year') {
+        newFilters.semester = '';
+        newFilters.section = '';
+      } else if (name === 'semester') {
+        newFilters.section = '';
+      }
+      
+      return newFilters;
+    });
   };
 
   const handleDelete = async (studentId) => {
@@ -446,32 +480,8 @@ const StudentAccounts = () => {
     });
   };
 
-  const getAvailableSemesters = (year) => {
-    if (!year) return [];
-    const yearNum = parseInt(year);
-    return SEMESTERS.filter(sem => {
-      const semNumber = parseInt(sem);
-      return semNumber === (yearNum - 1) * 2 + 1 || semNumber === (yearNum - 1) * 2 + 2;
-    });
-  };
-
-  const getAvailableSections = (department, year, semester) => {
-    if (!department || !year || !semester) {
-      return [];
-    }
-
-    const yearNum = parseInt(year);
-    const semesterNum = parseInt(semester);
-
-    // Find the matching section configuration
-    const matchingConfig = sections.find(section => 
-      section.department === department && 
-      section.year === yearNum && 
-      section.semester === semesterNum
-    );
-
-    return matchingConfig ? matchingConfig.sections : [];
-  };
+  const getAvailableSemesters = () => availableSemesters;
+  const getAvailableSections = () => availableSections;
 
   // Modify the togglePasswordVisibility function
   const toggleAllPasswords = async () => {
@@ -502,6 +512,100 @@ const StudentAccounts = () => {
     XLSX.writeFile(wb, 'student_upload_template.xlsx');
   };
 
+  const handleDownloadPDF = async () => {
+    try {
+      // First fetch all passwords
+      const response = await api.get('/api/admin/accounts/passwords?role=student');
+      const passwords = response.passwords || {};
+
+      const doc = new jsPDF();
+      
+      // Add title and subtitle
+      doc.setFontSize(18);
+      doc.text('Student Accounts', 14, 15);
+      
+      // Add timestamp
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 25);
+      
+      // Add summary box
+      doc.setDrawColor(200, 200, 200);
+      doc.setFillColor(245, 245, 245);
+      doc.roundedRect(14, 30, 180, 25, 3, 3, 'FD');
+      
+      // Add counts with bold headers
+      doc.setFont(undefined, 'bold');
+      doc.text('Summary:', 20, 38);
+      doc.setFont(undefined, 'normal');
+      doc.text(`• Total Students: ${students.length}`, 20, 44);
+      doc.text(`• Filtered Students: ${getFilteredStudents().length}`, 90, 44);
+      
+      // Add filter information if any filters are active
+      const activeFilters = [];
+      if (filters.department) activeFilters.push(`Department: ${filters.department}`);
+      if (filters.year) activeFilters.push(`Year: ${filters.year}`);
+      if (filters.semester) activeFilters.push(`Semester: ${filters.semester}`);
+      if (filters.section) activeFilters.push(`Section: ${filters.section}`);
+      if (filters.admissionNumber) activeFilters.push(`Admission No: ${filters.admissionNumber}`);
+      
+      if (activeFilters.length > 0) {
+        // Create a larger box for filters
+        doc.setDrawColor(200, 200, 200);
+        doc.setFillColor(245, 245, 245);
+        const filterBoxHeight = Math.min(40, 15 + (activeFilters.length * 6));
+        doc.roundedRect(14, 60, 180, filterBoxHeight, 3, 3, 'FD');
+        
+        // Add filter header
+        doc.setFont(undefined, 'bold');
+        doc.text('Active Filters:', 20, 68);
+        doc.setFont(undefined, 'normal');
+        
+        // Add each filter on a new line
+        activeFilters.forEach((filter, index) => {
+          doc.text(`• ${filter}`, 20, 74 + (index * 6));
+        });
+      }
+      
+      // Prepare table data with original passwords
+      const tableData = getFilteredStudents().map(student => [
+        student.name || '',
+        student.email || '',
+        student.department || '',
+        student.year ? `Year ${student.year}` : '',
+        student.semester ? `Semester ${student.semester}` : '',
+        student.section ? `Section ${student.section}` : '',
+        student.admissionNumber || '',
+        passwords[student._id] || '********'  // Use fetched password
+      ]);
+      
+      // Add table using autoTable
+      autoTable(doc, {
+        startY: activeFilters.length > 0 ? Math.max(85, 65 + (activeFilters.length * 6)) : 60,
+        head: [['Name', 'Email', 'Department', 'Year', 'Semester', 'Section', 'Admission No.', 'Password']],
+        body: tableData,
+        theme: 'grid',
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [71, 71, 71] },
+        columnStyles: {
+          0: { cellWidth: 30 }, // Name
+          1: { cellWidth: 40 }, // Email
+          2: { cellWidth: 25 }, // Department
+          3: { cellWidth: 15 }, // Year
+          4: { cellWidth: 20 }, // Semester
+          5: { cellWidth: 15 }, // Section
+          6: { cellWidth: 25 }, // Admission No.
+          7: { cellWidth: 20 }  // Password
+        }
+      });
+      
+      // Save PDF
+      doc.save('student-accounts.pdf');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      setError('Failed to generate PDF. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <Container sx={{ mt: 4, display: 'flex', justifyContent: 'center', flexDirection: 'column', alignItems: 'center' }}>
@@ -529,12 +633,18 @@ const StudentAccounts = () => {
       <Paper sx={{ p: 3 }}>
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h4">Student Accounts</Typography>
-          <Box>
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <Button
-              variant="contained"
-              startIcon={<UploadIcon />}
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={handleDownloadPDF}
+            >
+              Download PDF
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<CloudUploadIcon />}
               onClick={() => setOpenUploadDialog(true)}
-              sx={{ mr: 2 }}
             >
               Upload Excel
             </Button>
@@ -570,8 +680,8 @@ const StudentAccounts = () => {
                     >
                       <MenuItem value="">All</MenuItem>
                       {departments.map((dept) => (
-                        <MenuItem key={dept._id} value={dept.name}>
-                          {dept.name}
+                        <MenuItem key={dept} value={dept}>
+                          {dept}
                         </MenuItem>
                       ))}
                     </Select>
@@ -586,7 +696,7 @@ const StudentAccounts = () => {
                       label="Year"
                     >
                       <MenuItem value="">All</MenuItem>
-                      {YEARS.map((year) => (
+                      {years.map((year) => (
                         <MenuItem key={year} value={year}>
                           {year}
                         </MenuItem>
@@ -603,7 +713,7 @@ const StudentAccounts = () => {
                       label="Semester"
                     >
                       <MenuItem value="">All</MenuItem>
-                      {getAvailableSemesters(filters.year).map((sem) => (
+                      {getAvailableSemesters().map((sem) => (
                         <MenuItem key={sem} value={sem}>
                           {sem}
                         </MenuItem>
@@ -620,7 +730,7 @@ const StudentAccounts = () => {
                       label="Section"
                     >
                       <MenuItem value="">All</MenuItem>
-                      {getAvailableSections(filters.department, filters.year, filters.semester).map((sec) => (
+                      {getAvailableSections().map((sec) => (
                         <MenuItem key={sec} value={sec}>
                           {sec}
                         </MenuItem>
@@ -637,6 +747,25 @@ const StudentAccounts = () => {
                     onChange={(e) => setFilters({ ...filters, admissionNumber: e.target.value })}
                     placeholder="Search..."
                   />
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {/* Count Display */}
+            <Paper sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5' }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="subtitle1">
+                    Showing {getFilteredStudents().length} out of {students.length} students
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    {filters.department && `Department: ${filters.department}`}
+                    {filters.year && ` • Year: ${filters.year}`}
+                    {filters.semester && ` • Semester: ${filters.semester}`}
+                    {filters.section && ` • Section: ${filters.section}`}
+                  </Typography>
                 </Grid>
               </Grid>
             </Paper>
@@ -751,8 +880,8 @@ const StudentAccounts = () => {
                 label="Department"
               >
                 {departments.map((dept) => (
-                  <MenuItem key={dept._id} value={dept.name}>
-                    {dept.name}
+                  <MenuItem key={dept} value={dept}>
+                    {dept}
                   </MenuItem>
                 ))}
               </Select>
@@ -765,7 +894,7 @@ const StudentAccounts = () => {
                 onChange={handleInputChange}
                 label="Year"
               >
-                {YEARS.map((year) => (
+                {years.map((year) => (
                   <MenuItem key={year} value={year}>
                     {year}
                   </MenuItem>
@@ -781,7 +910,7 @@ const StudentAccounts = () => {
                 label="Semester"
                 disabled={!formData.year}
               >
-                {getAvailableSemesters(formData.year).map((sem) => (
+                {getAvailableSemesters().map((sem) => (
                   <MenuItem key={sem} value={sem}>
                     Semester {sem}
                   </MenuItem>
@@ -797,7 +926,7 @@ const StudentAccounts = () => {
                 label="Section"
                 disabled={!formData.department || !formData.year || !formData.semester}
               >
-                {getAvailableSections(formData.department, formData.year, formData.semester).map((section) => (
+                {getAvailableSections().map((section) => (
                   <MenuItem key={section} value={section}>
                     {section}
                   </MenuItem>

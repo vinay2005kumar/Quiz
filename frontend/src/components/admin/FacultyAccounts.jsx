@@ -50,6 +50,8 @@ import {
   Download as DownloadIcon,
   CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import api from '../../config/axios';
 
@@ -109,6 +111,10 @@ const FacultyAccounts = () => {
   const [uploadPreview, setUploadPreview] = useState([]);
   const [uploadStatus, setUploadStatus] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [academicDetails, setAcademicDetails] = useState([]);
+  const [years, setYears] = useState([]);
+  const [availableSemesters, setAvailableSemesters] = useState([]);
+  const [availableSections, setAvailableSections] = useState([]);
 
   const getKey = (dept, year, sem) => `${dept}-${year}-${sem}`;
 
@@ -166,6 +172,82 @@ const FacultyAccounts = () => {
     }));
   };
 
+  const fetchAcademicDetails = async () => {
+    try {
+      const response = await api.get('/api/academic-details');
+      console.log('Academic details response:', response);
+      
+      if (response && Array.isArray(response)) {
+        setAcademicDetails(response);
+        
+        // Extract unique departments
+        const uniqueDepartments = [...new Set(response.map(detail => detail.department))];
+        setDepartments(uniqueDepartments);
+      } else {
+        console.error('Invalid academic details data:', response);
+        setAcademicDetails([]);
+        setDepartments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching academic details:', error);
+      setError('Failed to fetch academic details');
+      setAcademicDetails([]);
+      setDepartments([]);
+    }
+  };
+
+  // Update available years when department changes
+  useEffect(() => {
+    if (selectedDepartment) {
+      const departmentYears = [...new Set(
+        academicDetails
+          .filter(detail => detail.department === selectedDepartment)
+          .map(detail => detail.year)
+      )].sort((a, b) => a - b);
+      
+      console.log('Available years for department:', departmentYears);
+      setYears(departmentYears);
+    } else {
+      setYears([]);
+    }
+  }, [selectedDepartment, academicDetails]);
+
+  // Update available semesters when year changes
+  useEffect(() => {
+    if (selectedDepartment && selectedYear) {
+      const availableSems = [...new Set(
+        academicDetails
+          .filter(detail => 
+            detail.department === selectedDepartment && 
+            detail.year === parseInt(selectedYear)
+          )
+          .map(detail => detail.semester)
+      )].sort((a, b) => a - b);
+      
+      console.log('Available semesters:', availableSems);
+      setAvailableSemesters(availableSems);
+    } else {
+      setAvailableSemesters([]);
+    }
+  }, [selectedDepartment, selectedYear, academicDetails]);
+
+  // Update available sections when semester changes
+  useEffect(() => {
+    if (selectedDepartment && selectedYear && selectedSemester) {
+      const detail = academicDetails.find(d => 
+        d.department === selectedDepartment && 
+        d.year === parseInt(selectedYear) && 
+        d.semester === parseInt(selectedSemester)
+      );
+
+      const sections = detail?.sections ? detail.sections.split(',').map(s => s.trim()) : [];
+      console.log('Available sections:', sections);
+      setAvailableSections(sections);
+    } else {
+      setAvailableSections([]);
+    }
+  }, [selectedDepartment, selectedYear, selectedSemester, academicDetails]);
+
   const fetchFaculty = async () => {
     try {
       setLoading(true);
@@ -174,9 +256,10 @@ const FacultyAccounts = () => {
       
       // Get faculty accounts specifically
       const response = await api.get('/api/admin/accounts?role=faculty');
-      console.log('All accounts:', response.accounts);
+      console.log('Faculty response:', response);
 
-      if (!response || !response.accounts) {
+      // Check if response exists and has the expected structure
+      if (!response || !response.accounts || !Array.isArray(response.accounts)) {
         console.error('Invalid response format:', response);
         throw new Error('Invalid response format from server');
       }
@@ -220,32 +303,16 @@ const FacultyAccounts = () => {
     }
   };
 
-  const fetchDepartments = async () => {
-    try {
-      const response = await api.get('/api/settings/departments');
-      console.log('Departments response:', response);
-      if (response && Array.isArray(response.departments)) {
-        setDepartments(response.departments);
-      } else {
-        console.error('Invalid departments data:', response);
-        setDepartments([]);
-      }
-    } catch (error) {
-      console.error('Error fetching departments:', error);
-      console.error('Error details:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message
-      });
-      setDepartments([]);
-    }
-  };
-
   const fetchSections = async () => {
     try {
-      const response = await api.get('/api/settings/sections');
-      if (response && Array.isArray(response.sections)) {
-        setSections(response.sections);
+      const response = await api.get('/api/academic-details');
+      if (response && Array.isArray(response.data)) {
+        // Extract all sections from academic details
+        const allSections = response.data.reduce((acc, detail) => {
+          const sectionArray = detail.sections.split(',').map(s => s.trim());
+          return [...new Set([...acc, ...sectionArray])];
+        }, []);
+        setSections(allSections);
       } else {
         console.error('Invalid sections data:', response);
         setSections([]);
@@ -257,9 +324,8 @@ const FacultyAccounts = () => {
   };
 
   useEffect(() => {
+    fetchAcademicDetails();
     fetchFaculty();
-    fetchDepartments();
-    fetchSections();
   }, []);
 
   const handleOpenDialog = (faculty = null) => {
@@ -622,9 +688,13 @@ const FacultyAccounts = () => {
 
   const getFilteredFaculty = () => {
     return faculty.filter(member => {
-      const departmentMatch = !filters.department || member.departments?.includes(filters.department);
-      const emailMatch = !filters.email || member.email.toLowerCase().includes(filters.email.toLowerCase());
-      const nameMatch = !searchQuery || member.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const departmentMatch = !filters.department || 
+        (member.departments && Array.isArray(member.departments) && 
+         member.departments.includes(filters.department));
+      const emailMatch = !filters.email || 
+        (member.email && member.email.toLowerCase().includes(filters.email.toLowerCase()));
+      const nameMatch = !searchQuery || 
+        (member.name && member.name.toLowerCase().includes(searchQuery.toLowerCase()));
       return departmentMatch && emailMatch && nameMatch;
     });
   };
@@ -827,7 +897,7 @@ const FacultyAccounts = () => {
     try {
       if (!visiblePasswords[facultyId]) {
         // Fetch password only if not already visible
-        const response = await api.get(`/api/admin/accounts/${facultyId}/password?role=faculty`);
+        const response = await api.get(`/api/admin/accounts/${facultyId}/password`);
         if (response && response.password) {
           setVisiblePasswords(prev => ({
             ...prev,
@@ -847,6 +917,67 @@ const FacultyAccounts = () => {
     } catch (error) {
       console.error('Error fetching password:', error);
       setError('Failed to fetch password');
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      // First fetch all passwords
+      const response = await api.get('/api/admin/accounts/passwords?role=faculty');
+      const passwords = response.passwords || {};
+
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(16);
+      doc.text('Faculty Accounts', 14, 15);
+      
+      // Add timestamp and counts
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+      doc.text(`Total Faculty: ${faculty.length}`, 14, 28);
+      doc.text(`Filtered Faculty: ${getFilteredFaculty().length}`, 14, 34);
+      
+      // Add filter information if any filters are active
+      let filterText = '';
+      if (filters.department) filterText += `Department: ${filters.department} `;
+      if (searchQuery) filterText += `Search: "${searchQuery}"`;
+      
+      if (filterText) {
+        doc.text(`Filters Applied: ${filterText}`, 14, 40);
+      }
+      
+      // Prepare table data with original passwords
+      const tableData = getFilteredFaculty().map(facultyMember => [
+        facultyMember.name || '',
+        facultyMember.email || '',
+        facultyMember.departments?.join(', ') || '',
+        facultyMember.years?.join(', ') || '',
+        passwords[facultyMember._id] || '********'  // Use fetched password
+      ]);
+      
+      // Add table using autoTable
+      autoTable(doc, {
+        startY: 25,
+        head: [['Name', 'Email', 'Departments', 'Years', 'Password']],
+        body: tableData,
+        theme: 'grid',
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [71, 71, 71] },
+        columnStyles: {
+          0: { cellWidth: 40 }, // Name
+          1: { cellWidth: 50 }, // Email
+          2: { cellWidth: 40 }, // Departments
+          3: { cellWidth: 30 }, // Years
+          4: { cellWidth: 30 }  // Password
+        }
+      });
+      
+      // Save PDF
+      doc.save('faculty-accounts.pdf');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      setError('Failed to generate PDF. Please try again.');
     }
   };
 
@@ -881,23 +1012,12 @@ const FacultyAccounts = () => {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              onClick={() => {
-                // Create a sample Excel file
-                const ws = XLSX.utils.aoa_to_sheet([
-                  ['Name', 'Email', 'Password', 'Department', 'Year_Sem_Sec'],
-                  ['John Doe', 'john.doe@example.com', 'password123', 'Computer Science', '1-1:A,B;1-2:B,C'],
-                  ['Jane Smith', 'jane.smith@example.com', 'password456', 'Electronics', '2-1:B,C;2-2:A,B']
-                ]);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, 'Template');
-                XLSX.writeFile(wb, 'faculty_upload_template.xlsx');
-              }}
+              onClick={handleDownloadPDF}
             >
-              Download Template
+              Download PDF
             </Button>
             <Button
-              variant="contained"
-              color="secondary"
+              variant="outlined"
               startIcon={<CloudUploadIcon />}
               onClick={() => setOpenUploadDialog(true)}
             >
@@ -950,8 +1070,8 @@ const FacultyAccounts = () => {
                     >
                       <MenuItem value="">All</MenuItem>
                       {departments.map((dept) => (
-                        <MenuItem key={dept._id} value={dept.name}>
-                          {dept.name}
+                        <MenuItem key={dept} value={dept}>
+                          {dept}
                         </MenuItem>
                       ))}
                     </Select>
@@ -981,6 +1101,23 @@ const FacultyAccounts = () => {
                   </Typography>
                 </Box>
               )}
+            </Paper>
+
+            {/* Count Display */}
+            <Paper sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5' }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="subtitle1">
+                    Showing {getFilteredFaculty().length} out of {faculty.length} faculty members
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    {filters.department && `Department: ${filters.department}`}
+                    {searchQuery && ` • Search: "${searchQuery}"`}
+                  </Typography>
+                </Grid>
+              </Grid>
             </Paper>
 
             {/* Table Section */}
@@ -1083,7 +1220,7 @@ const FacultyAccounts = () => {
                               <MenuItem value="" disabled>
                                 <AddIcon fontSize="small" /> Add
                               </MenuItem>
-                              {YEARS
+                              {years
                                 .filter(year => !member.years.includes(year))
                                 .map((year) => (
                                   <MenuItem key={year} value={year}>
@@ -1321,8 +1458,8 @@ const FacultyAccounts = () => {
               
               {/* Department Selection */}
               <Paper sx={{ p: 2, mb: 2 }}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Select Department</InputLabel>
+                <Typography variant="subtitle2" gutterBottom>Select Department</Typography>
+                <FormControl fullWidth>
                   <Select
                     value={selectedDepartment}
                     onChange={(e) => {
@@ -1331,11 +1468,14 @@ const FacultyAccounts = () => {
                       setSelectedSemester('');
                       setSectionInput('');
                     }}
-                    label="Select Department"
+                    displayEmpty
                   >
+                    <MenuItem value="">
+                      <em>Select a department</em>
+                    </MenuItem>
                     {departments.map((dept) => (
-                      <MenuItem key={dept._id} value={dept.name}>
-                        {dept.name}
+                      <MenuItem key={dept} value={dept}>
+                        {dept}
                       </MenuItem>
                     ))}
                   </Select>
@@ -1347,13 +1487,13 @@ const FacultyAccounts = () => {
                 <Paper sx={{ p: 2, mb: 2 }}>
                   <Typography variant="subtitle2" gutterBottom>Select Year</Typography>
                   <Grid container spacing={2}>
-                    {YEARS.map((year) => (
+                    {years.map((year) => (
                       <Grid item xs={6} sm={3} key={year}>
                         <Button
                           fullWidth
-                          variant={selectedYear === year ? "contained" : "outlined"}
+                          variant={selectedYear === year.toString() ? "contained" : "outlined"}
                           onClick={() => {
-                            setSelectedYear(year);
+                            setSelectedYear(year.toString());
                             setSelectedSemester('');
                             setSectionInput('');
                           }}
@@ -1371,13 +1511,13 @@ const FacultyAccounts = () => {
                 <Paper sx={{ p: 2, mb: 2 }}>
                   <Typography variant="subtitle2" gutterBottom>Select Semester</Typography>
                   <Grid container spacing={2}>
-                    {SEMESTERS.map((semester) => (
+                    {availableSemesters.map((semester) => (
                       <Grid item xs={6} sm={3} key={semester}>
                         <Button
                           fullWidth
-                          variant={selectedSemester === semester ? "contained" : "outlined"}
+                          variant={selectedSemester === semester.toString() ? "contained" : "outlined"}
                           onClick={() => {
-                            setSelectedSemester(semester);
+                            setSelectedSemester(semester.toString());
                             setSectionInput('');
                           }}
                         >
@@ -1389,61 +1529,38 @@ const FacultyAccounts = () => {
                 </Paper>
               )}
 
-              {/* Section Input - Only show if semester is selected */}
+              {/* Section Selection - Only show if semester is selected */}
               {selectedSemester && (
                 <Paper sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Add Sections for {selectedDepartment} - Year {selectedYear} - Semester {selectedSemester}
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Enter Sections (comma-separated)"
-                      value={sectionInput}
-                      onChange={(e) => setSectionInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && sectionInput.trim()) {
-                          e.preventDefault();
-                          handleAddSection();
-                        }
-                      }}
-                      placeholder="e.g., A, B, C"
-                    />
-                    <Button
-                      variant="contained"
-                      onClick={handleAddSection}
-                      disabled={!sectionInput.trim()}
-                    >
-                      Add
-                    </Button>
-                  </Box>
-
-                  {/* Display assigned sections */}
-                  {Object.entries(assignedSections).map(([key, sections]) => {
-                    const [dept, year, sem] = key.split('-');
-                    if (sections.length === 0) return null;
-                    
-                    return (
-                      <Box key={key} sx={{ mb: 2 }}>
-                        <Typography variant="body2" color="textSecondary" gutterBottom>
-                          {dept} - Year {year} - Semester {sem}
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                          {sections.map((section, index) => (
-                            <Chip
-                              key={index}
-                              label={section}
-                              onDelete={() => removeSection(dept, year, sem, section)}
-                              color="primary"
-                              variant="outlined"
-                            />
-                          ))}
-                        </Box>
-                      </Box>
-                    );
-                  })}
+                  <Typography variant="subtitle2" gutterBottom>Select Sections</Typography>
+                  <Grid container spacing={2}>
+                    {availableSections.map((section) => (
+                      <Grid item xs={6} sm={3} key={section}>
+                        <Button
+                          fullWidth
+                          variant={
+                            assignedSections[getKey(selectedDepartment, selectedYear, selectedSemester)]?.includes(section)
+                              ? "contained"
+                              : "outlined"
+                          }
+                          onClick={() => {
+                            const key = getKey(selectedDepartment, selectedYear, selectedSemester);
+                            const currentSections = assignedSections[key] || [];
+                            const newSections = currentSections.includes(section)
+                              ? currentSections.filter(s => s !== section)
+                              : [...currentSections, section];
+                            
+                            setAssignedSections(prev => ({
+                              ...prev,
+                              [key]: newSections
+                            }));
+                          }}
+                        >
+                          Section {section}
+                        </Button>
+                      </Grid>
+                    ))}
+                  </Grid>
                 </Paper>
               )}
 

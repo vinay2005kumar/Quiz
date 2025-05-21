@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, memo } from 'react';
 import {
   Box,
   Grid,
@@ -8,35 +8,103 @@ import {
   Typography,
   IconButton,
   Radio,
-  Alert
+  Alert,
+  CircularProgress
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import api from '../../../config/axios';
 
-const ManualQuizForm = ({ onNext, basicDetails }) => {
+// Create a memoized Question component
+const Question = memo(({ 
+  question, 
+  questionIndex, 
+  onQuestionChange, 
+  onOptionChange, 
+  onRemove, 
+  isReview 
+}) => (
+  <Paper sx={{ p: 2, mb: 2 }}>
+    <Grid container spacing={2}>
+      <Grid item xs={11}>
+        <TextField
+          fullWidth
+          label={`Question ${questionIndex + 1}`}
+          value={question.question}
+          onChange={(e) => onQuestionChange(questionIndex, 'question', e.target.value)}
+          required
+          disabled={isReview}
+        />
+      </Grid>
+      <Grid item xs={1}>
+        {!isReview && (
+          <IconButton
+            color="error"
+            onClick={() => onRemove(questionIndex)}
+          >
+            <DeleteIcon />
+          </IconButton>
+        )}
+      </Grid>
+
+      {question.options.map((option, optionIndex) => (
+        <Grid item xs={12} sm={6} key={optionIndex}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Radio
+              checked={question.correctAnswer === optionIndex}
+              onChange={() => onQuestionChange(questionIndex, 'correctAnswer', optionIndex)}
+              value={optionIndex}
+              disabled={isReview}
+            />
+            <TextField
+              fullWidth
+              label={`Option ${optionIndex + 1}`}
+              value={option}
+              onChange={(e) => onOptionChange(questionIndex, optionIndex, e.target.value)}
+              required
+              disabled={isReview}
+            />
+          </Box>
+        </Grid>
+      ))}
+
+      <Grid item xs={12} sm={6}>
+        <TextField
+          fullWidth
+          type="number"
+          label="Marks"
+          value={question.marks}
+          onChange={(e) => onQuestionChange(questionIndex, 'marks', Number(e.target.value))}
+          required
+          inputProps={{ min: 1 }}
+          disabled={isReview}
+        />
+      </Grid>
+    </Grid>
+  </Paper>
+));
+
+Question.displayName = 'Question';
+
+const ManualQuizForm = ({ basicDetails, questions, onQuestionsUpdate, isReview = false }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [questions, setQuestions] = useState([
-    {
-      question: '',
-      options: ['', '', '', ''],
-      correctAnswer: 0,
-      marks: 1
-    }
-  ]);
 
-  const handleQuestionChange = (index, field, value) => {
-    setQuestions(prev => prev.map((q, i) => {
+  const handleQuestionChange = useCallback((index, field, value) => {
+    if (isReview) return;
+    
+    onQuestionsUpdate(questions.map((q, i) => {
       if (i === index) {
         return { ...q, [field]: value };
       }
       return q;
     }));
-  };
+  }, [questions, onQuestionsUpdate, isReview]);
 
-  const handleOptionChange = (questionIndex, optionIndex, value) => {
-    setQuestions(prev => prev.map((q, i) => {
+  const handleOptionChange = useCallback((questionIndex, optionIndex, value) => {
+    if (isReview) return;
+    
+    onQuestionsUpdate(questions.map((q, i) => {
       if (i === questionIndex) {
         const newOptions = [...q.options];
         newOptions[optionIndex] = value;
@@ -44,11 +112,13 @@ const ManualQuizForm = ({ onNext, basicDetails }) => {
       }
       return q;
     }));
-  };
+  }, [questions, onQuestionsUpdate, isReview]);
 
-  const addQuestion = () => {
-    setQuestions(prev => [
-      ...prev,
+  const addQuestion = useCallback(() => {
+    if (isReview) return;
+    
+    onQuestionsUpdate([
+      ...questions,
       {
         question: '',
         options: ['', '', '', ''],
@@ -56,13 +126,15 @@ const ManualQuizForm = ({ onNext, basicDetails }) => {
         marks: 1
       }
     ]);
-  };
+  }, [questions, onQuestionsUpdate, isReview]);
 
-  const removeQuestion = (index) => {
+  const removeQuestion = useCallback((index) => {
+    if (isReview) return;
+    
     if (questions.length > 1) {
-      setQuestions(prev => prev.filter((_, i) => i !== index));
+      onQuestionsUpdate(questions.filter((_, i) => i !== index));
     }
-  };
+  }, [questions, onQuestionsUpdate, isReview]);
 
   const handleSubmit = async () => {
     try {
@@ -85,15 +157,24 @@ const ManualQuizForm = ({ onNext, basicDetails }) => {
       });
 
       const formData = {
-        ...basicDetails,
-        questions,
+        title: basicDetails.title,
+        subject: basicDetails.subject,
+        duration: parseInt(basicDetails.duration),
+        startTime: basicDetails.startTime,
+        endTime: basicDetails.endTime,
+        allowedGroups: basicDetails.allowedGroups,
+        questions: questions.map(q => ({
+          question: q.question,
+          options: q.options,
+          correctAnswer: parseInt(q.correctAnswer),
+          marks: parseInt(q.marks)
+        })),
         type: 'academic'
       };
 
       await api.post('/api/quiz', formData);
-      onNext();
     } catch (error) {
-      setError(error.message || 'Failed to create quiz');
+      setError(error.response?.data?.message || error.message || 'Failed to create quiz');
     } finally {
       setLoading(false);
     }
@@ -109,72 +190,33 @@ const ManualQuizForm = ({ onNext, basicDetails }) => {
 
       <Grid container spacing={3}>
         <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>
-            Questions
-          </Typography>
-          {questions.map((question, questionIndex) => (
-            <Paper key={questionIndex} sx={{ p: 2, mb: 2 }}>
-              <Grid container spacing={2}>
-                <Grid item xs={11}>
-                  <TextField
-                    fullWidth
-                    label={`Question ${questionIndex + 1}`}
-                    value={question.question}
-                    onChange={(e) => handleQuestionChange(questionIndex, 'question', e.target.value)}
-                    required
-                  />
-                </Grid>
-                <Grid item xs={1}>
-                  <IconButton
-                    color="error"
-                    onClick={() => removeQuestion(questionIndex)}
-                    disabled={questions.length === 1}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </Grid>
-
-                {question.options.map((option, optionIndex) => (
-                  <Grid item xs={12} sm={6} key={optionIndex}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Radio
-                        checked={question.correctAnswer === optionIndex}
-                        onChange={() => handleQuestionChange(questionIndex, 'correctAnswer', optionIndex)}
-                        value={optionIndex}
-                      />
-                      <TextField
-                        fullWidth
-                        label={`Option ${optionIndex + 1}`}
-                        value={option}
-                        onChange={(e) => handleOptionChange(questionIndex, optionIndex, e.target.value)}
-                        required
-                      />
-                    </Box>
-                  </Grid>
-                ))}
-
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label="Marks"
-                    value={question.marks}
-                    onChange={(e) => handleQuestionChange(questionIndex, 'marks', Number(e.target.value))}
-                    required
-                    inputProps={{ min: 1 }}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
+          {!isReview && (
+            <Typography variant="h6" gutterBottom>
+              Questions
+            </Typography>
+          )}
+          
+          {questions.map((question, index) => (
+            <Question
+              key={index}
+              question={question}
+              questionIndex={index}
+              onQuestionChange={handleQuestionChange}
+              onOptionChange={handleOptionChange}
+              onRemove={removeQuestion}
+              isReview={isReview}
+            />
           ))}
 
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={addQuestion}
-          >
-            Add Question
-          </Button>
+          {!isReview && (
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={addQuestion}
+            >
+              Add Question
+            </Button>
+          )}
         </Grid>
 
         <Grid item xs={12}>
@@ -193,4 +235,4 @@ const ManualQuizForm = ({ onNext, basicDetails }) => {
   );
 };
 
-export default ManualQuizForm; 
+export default memo(ManualQuizForm); 

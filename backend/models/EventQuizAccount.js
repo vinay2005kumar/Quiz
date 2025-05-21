@@ -3,17 +3,10 @@ const bcrypt = require('bcryptjs');
 const { encrypt } = require('../utils/encryption');
 
 const eventQuizAccountSchema = new mongoose.Schema({
-  department: {
+  name: {
     type: String,
     required: true,
-    enum: [
-      'Computer Science and Engineering',
-      'Electronics and Communication Engineering',
-      'Electrical and Electronics Engineering',
-      'Mechanical Engineering',
-      'Civil Engineering',
-      'Information Technology'
-    ]
+    trim: true
   },
   email: {
     type: String,
@@ -25,6 +18,25 @@ const eventQuizAccountSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true
+  },
+  eventType: {
+    type: String,
+    enum: ['department', 'organization'],
+    default: 'department'
+  },
+  department: {
+    type: String,
+    required: function() {
+      return this.eventType === 'department';
+    },
+    enum: [
+      'Computer Science and Engineering',
+      'Electronics and Communication Engineering',
+      'Electrical and Electronics Engineering',
+      'Mechanical Engineering',
+      'Civil Engineering',
+      'Information Technology'
+    ]
   },
   originalPassword: {
     type: String,
@@ -42,6 +54,10 @@ const eventQuizAccountSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true
@@ -52,22 +68,22 @@ eventQuizAccountSchema.index({ department: 1, email: 1 });
 
 // Pre-save middleware to hash password and store original password
 eventQuizAccountSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    try {
-      // Store original password in encrypted form
-      this.originalPassword = encrypt(this.password);
-      
-      // Hash password for authentication
-      const salt = await bcrypt.genSalt(10);
-      this.password = await bcrypt.hash(this.password, salt);
-    } catch (error) {
-      return next(error);
-    }
+  if (!this.isModified('password')) return next();
+  
+  try {
+    // Store original password in encrypted form
+    this.originalPassword = encrypt(this.password);
+    
+    // Hash password for authentication
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
-// Update middleware to handle password changes
+// Update middleware to handle password changes and updatedAt timestamp
 eventQuizAccountSchema.pre('findOneAndUpdate', async function(next) {
   const update = this.getUpdate();
   if (update.password) {
@@ -82,6 +98,7 @@ eventQuizAccountSchema.pre('findOneAndUpdate', async function(next) {
       return next(error);
     }
   }
+  update.updatedAt = new Date();
   next();
 });
 

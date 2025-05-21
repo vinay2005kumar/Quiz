@@ -1,5 +1,6 @@
 const express = require('express');
-const User = require('../models/User'); // Add this at the top with other imports
+const User = require('../models/User');
+const AcademicDetail = require('../models/AcademicDetail');
 const router = express.Router();
 const multer = require('multer');
 const XLSX = require('xlsx');
@@ -60,23 +61,18 @@ router.post('/', auth, authorize('faculty', 'admin'), async (req, res) => {
       });
     }
 
-    // Validate allowedGroups
-    if (!Array.isArray(req.body.allowedGroups) || req.body.allowedGroups.length === 0) {
-      return res.status(400).json({
-        message: 'Quiz must have at least one allowed group'
-      });
-    }
-
     // For faculty, enforce department restriction
     if (req.user.role === 'faculty') {
-      // Check if any group has a different department than the faculty's
+      // Check if any group has a different department than the faculty's assignments
       const hasInvalidDepartment = req.body.allowedGroups.some(
-        group => group.department !== req.user.department
+        group => !req.user.assignments.some(
+          assignment => assignment.department === group.department
+        )
       );
 
       if (hasInvalidDepartment) {
         return res.status(403).json({
-          message: 'Faculty can only create quizzes for their own department'
+          message: 'Faculty can only create quizzes for their assigned departments'
         });
       }
     }
@@ -146,7 +142,7 @@ router.post('/', auth, authorize('faculty', 'admin'), async (req, res) => {
 // Get all quizzes (faculty) or available quizzes (student)
 router.get('/', auth, async (req, res) => {
   try {
-    const { department, year, section, subject } = req.query;
+    const { department, year, section, subjectCode } = req.query;
     let query = {};
     
     if (req.user.role === 'student') {
@@ -174,8 +170,8 @@ router.get('/', auth, async (req, res) => {
       if (section && section !== 'all') {
         query['allowedGroups.section'] = section;
       }
-      if (subject && subject !== 'all') {
-        query.subject = subject;
+      if (subjectCode && subjectCode !== 'all') {
+        query.subject = subjectCode;
       }
       
       // If faculty, only show their quizzes
@@ -185,13 +181,27 @@ router.get('/', auth, async (req, res) => {
     }
     
     const quizzes = await Quiz.find(query)
-      .populate('subject', 'name code')
       .populate('createdBy', 'name email department')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Add submission statistics to each quiz
+    // Enrich quizzes with subject details from AcademicDetail
     const enrichedQuizzes = await Promise.all(quizzes.map(async (quiz) => {
+      // Get subject details from academic details
+      const academicDetail = await AcademicDetail.findOne({
+        department: quiz.allowedGroups[0].department,
+        subjects: { $regex: new RegExp(`\\(${quiz.subject}\\)$`) }
+      });
+
+      const subjectInfo = academicDetail ? {
+        code: quiz.subject,
+        name: academicDetail.subjects
+          .split(',')
+          .find(s => s.includes(`(${quiz.subject})`))
+          ?.match(/^(.+)\([A-Z]{2}\d{3}\)$/)[1]
+          .trim()
+      } : { code: quiz.subject, name: 'Unknown Subject' };
+
       // Get actual count of registered students who match the quiz filters
       const authorizedStudents = await User.find({
         role: 'student',
@@ -211,6 +221,7 @@ router.get('/', auth, async (req, res) => {
 
       return {
         ...quiz,
+        subject: subjectInfo,
         totalSubmissions: submissions.length,
         averageScore: submissions.length > 0 ? (totalScore / submissions.length) : 0,
         totalAuthorizedStudents: authorizedStudents
@@ -254,7 +265,7 @@ router.get('/all', auth, authorize('admin'), async (req, res) => {
     console.log('MongoDB query:', query);
 
     const quizzes = await Quiz.find(query)
-      .populate('subject', 'name code department')
+      .populate('subject', 'name code')
       .populate('createdBy', 'name email department')
       .sort({ createdAt: -1 })
       .lean();
@@ -719,7 +730,7 @@ router.post('/upload/image', auth, authorize('faculty'), upload.single('file'), 
     }
 
     // Validate required fields
-    const requiredFields = ['title', 'subject', 'duration', 'startTime', 'endTime', 'allowedGroups'];
+    const requiredFields = ['title', 'subjectCode', 'duration', 'startTime', 'endTime', 'allowedGroups'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     
     if (missingFields.length > 0) {
@@ -743,7 +754,7 @@ router.post('/upload/image', auth, authorize('faculty'), upload.single('file'), 
       // Create quiz with extracted questions
       const quiz = new Quiz({
         title: req.body.title,
-        subject: req.body.subject,
+        subject: req.body.subjectCode,
         duration: parseInt(req.body.duration),
         startTime: new Date(req.body.startTime),
         endTime: new Date(req.body.endTime),
@@ -816,7 +827,7 @@ router.post('/upload/excel', auth, authorize('faculty'), upload.single('file'), 
 
     const quiz = new Quiz({
       title: req.body.title,
-      subject: req.body.subject,
+      subject: req.body.subjectCode,
       duration: req.body.duration,
       startTime: req.body.startTime,
       endTime: req.body.endTime,

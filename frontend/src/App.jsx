@@ -3,7 +3,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import CssBaseline from '@mui/material/CssBaseline';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import { NavigationProvider } from './context/NavigationContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navigation from './components/common/Navigation';
@@ -34,6 +34,7 @@ import AccountManagement from './components/admin/AccountManagement';
 import Profile from './components/profile/Profile';
 import StudentAccounts from './components/admin/StudentAccounts';
 import LandingPage from './components/LandingPage';
+import EventPage from './components/event/EventPage';
 
 // Create theme
 const theme = createTheme({
@@ -161,11 +162,33 @@ const theme = createTheme({
   },
 });
 
+// Loader component for showing loading state
+const LoadingScreen = () => (
+  <Box 
+    sx={{ 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      height: '100vh',
+      width: '100%'
+    }}
+  >
+    <CircularProgress />
+  </Box>
+);
+
+// Improved PrivateRoute component
 const PrivateRoute = ({ children, roles = [] }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
 
-  if (!isAuthenticated) {
+  // Show loading while checking auth
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  // If no user is found, redirect to login
+  if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -178,12 +201,123 @@ const PrivateRoute = ({ children, roles = [] }) => {
         return <Navigate to="/faculty/dashboard" replace />;
       case 'student':
         return <Navigate to="/student/dashboard" replace />;
+      case 'event':
+        return <Navigate to="/event/dashboard" replace />;
       default:
         return <Navigate to="/login" replace />;
     }
   }
 
   return children;
+};
+
+// Route component to redirect based on user role
+const RoleBasedRedirect = () => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <LoadingScreen />;
+  }
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  switch (user.role) {
+    case 'admin':
+      return <Navigate to="/admin/dashboard" replace />;
+    case 'faculty':
+      return <Navigate to="/faculty/dashboard" replace />;
+    case 'student':
+      return <Navigate to="/student/dashboard" replace />;
+    case 'event':
+      return <Navigate to="/event/dashboard" replace />;
+    default:
+      return <Navigate to="/login" replace />;
+  }
+};
+
+// Root level routing component that handles auth state
+const AppRoutes = () => {
+  const { user, loading } = useAuth();
+
+  // Show loading screen while checking auth status
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+      <Routes>
+        {/* Public Routes - accessible to all */}
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={user ? <RoleBasedRedirect /> : <Login />} />
+        <Route path="/register" element={user ? <RoleBasedRedirect /> : <Register />} />
+        <Route path="/events" element={<PublicEventQuizzes />} />
+
+        {/* Event Routes */}
+        <Route path="/event/*" element={
+          <PrivateRoute roles={['event']}>
+            <Navigation>
+              <Routes>
+                <Route path="/dashboard" element={<EventPage />} />
+                <Route path="*" element={<Navigate to="/event/dashboard" replace />} />
+              </Routes>
+            </Navigation>
+          </PrivateRoute>
+        } />
+
+        {/* Student Routes */}
+        <Route path="/student/*" element={
+          <PrivateRoute roles={['student']}>
+            <Navigation />
+            <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+              <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/quizzes" element={<QuizList />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="*" element={<Navigate to="/student/dashboard" replace />} />
+              </Routes>
+            </Box>
+          </PrivateRoute>
+        } />
+
+        {/* Faculty Routes */}
+        <Route path="/faculty/*" element={
+          <PrivateRoute roles={['faculty']}>
+            <Navigation />
+            <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+              <Routes>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/quizzes" element={<QuizList />} />
+                <Route path="/quizzes/create" element={<QuizCreate />} />
+                <Route path="/quizzes/:id/edit" element={<QuizEdit />} />
+                <Route path="/quizzes/:id/submissions" element={<QuizSubmissions />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="*" element={<Navigate to="/faculty/dashboard" replace />} />
+              </Routes>
+            </Box>
+          </PrivateRoute>
+        } />
+
+        {/* Admin Routes */}
+        <Route path="/admin/*" element={
+          <PrivateRoute roles={['admin']}>
+            <Navigation />
+            <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+              <AdminRoutes />
+            </Box>
+          </PrivateRoute>
+        } />
+
+        {/* Default redirect based on role */}
+        <Route path="/dashboard" element={<RoleBasedRedirect />} />
+
+        {/* Catch-all route */}
+        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
+      </Routes>
+    </Box>
+  );
 };
 
 function App() {
@@ -194,77 +328,7 @@ function App() {
         <Router>
           <AuthProvider>
             <NavigationProvider>
-              <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
-                <Routes>
-                  {/* Public Routes */}
-                  <Route path="/" element={<LandingPage />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/register" element={<Register />} />
-                  <Route path="/events" element={<PublicEventQuizzes />} />
-
-                  {/* Student Routes */}
-                  <Route path="/student/*" element={
-                    <PrivateRoute roles={['student']}>
-                      <Navigation />
-                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
-                        <Routes>
-                          <Route path="/dashboard" element={<Dashboard />} />
-                          <Route path="/quizzes" element={<QuizList />} />
-                          <Route path="/profile" element={<Profile />} />
-                          <Route path="*" element={<Navigate to="/student/dashboard" replace />} />
-                        </Routes>
-                      </Box>
-                    </PrivateRoute>
-                  } />
-
-                  {/* Faculty Routes */}
-                  <Route path="/faculty/*" element={
-                    <PrivateRoute roles={['faculty']}>
-                      <Navigation />
-                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
-                        <Routes>
-                          <Route path="/dashboard" element={<Dashboard />} />
-                          <Route path="/quizzes" element={<QuizList />} />
-                          <Route path="/quizzes/create" element={<QuizCreate />} />
-                          <Route path="/profile" element={<Profile />} />
-                          <Route path="*" element={<Navigate to="/faculty/dashboard" replace />} />
-                        </Routes>
-                      </Box>
-                    </PrivateRoute>
-                  } />
-
-                  {/* Admin Routes */}
-                  <Route path="/admin/*" element={
-                    <PrivateRoute roles={['admin']}>
-                      <Navigation />
-                      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
-                        <AdminRoutes />
-                      </Box>
-                    </PrivateRoute>
-                  } />
-
-                  {/* Default redirect based on role */}
-                  <Route path="/dashboard" element={
-                    <PrivateRoute>
-                      {({ user }) => {
-                        switch (user.role) {
-                          case 'admin':
-                            return <Navigate to="/admin/dashboard" replace />;
-                          case 'faculty':
-                            return <Navigate to="/faculty/dashboard" replace />;
-                          case 'student':
-                            return <Navigate to="/student/dashboard" replace />;
-                          default:
-                            return <Navigate to="/login" replace />;
-                        }
-                      }}
-                    </PrivateRoute>
-                  } />
-
-                  {/* Catch-all route */}
-                  <Route path="*" element={<Navigate to="/login" replace />} />
-                </Routes>
-              </Box>
+              <AppRoutes />
             </NavigationProvider>
           </AuthProvider>
         </Router>
