@@ -6,7 +6,7 @@ const getBackendPort = () => {
 };
 
 export const config = {
-  apiUrl: isDevelopment ? `http://localhost:${getBackendPort()}` : 'https://quiz-qigc.onrender.com',
+  apiUrl: isDevelopment ? `http://localhost:5000` : 'https://quiz-qigc.onrender.com',
   tokenKey: 'token',
   setBackendPort: (port) => {
     localStorage.setItem('backendPort', port);
