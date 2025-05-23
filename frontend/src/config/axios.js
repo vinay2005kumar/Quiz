@@ -1,26 +1,23 @@
 import axios from 'axios';
+import { config as appConfig } from './config'; // adjust path if needed
 
 const api = axios.create({
-  baseURL: 'http://localhost:5000',
+  baseURL: appConfig.apiUrl,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Add response interceptor
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
-    // For academic structure endpoint, return the entire response
     if (response.config.url.includes('/academic-details/faculty-structure')) {
       return response;
     }
-    
-    // For all other endpoints, return response.data if it exists, otherwise return response
     return response.data || response;
   },
   (error) => {
-    // Log error in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       console.error('API Error:', {
         status: error.response?.status,
         message: error.response?.data?.message || error.message,
@@ -28,13 +25,11 @@ api.interceptors.response.use(
       });
     }
 
-    // Handle 401/403 errors globally
     if (error.response?.status === 401 || error.response?.status === 403) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
 
-    // Enhance error message with server response if available
     if (error.response?.data?.message) {
       error.message = error.response.data.message;
     }
@@ -43,7 +38,7 @@ api.interceptors.response.use(
   }
 );
 
-// Add request interceptor to handle auth
+// Request interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -51,8 +46,7 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // Log requests in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       console.log('API Request:', {
         url: config.url,
         method: config.method
@@ -67,4 +61,4 @@ api.interceptors.request.use(
   }
 );
 
-export default api; 
+export default api;
